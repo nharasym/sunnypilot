@@ -79,3 +79,12 @@ sections:
     - type: param
       key: ToyotaEnforceStockLongitudinal
       equals: false
+  - key: ToyotaRsaClusterSign
+    widget: toggle
+    needs_onroad_cycle: true
+    title: Cluster Speed-Limit Sign from OSM (Experimental)
+    description: Draw the dash cluster's speed-limit sign from sunnypilot's resolved limit — real road signs when the camera
+      sees one, OSM map data everywhere else. Requires OSM map data and a car restart.
+    enablement:
+    - $ref: '#/macros/offroad'
+    - $ref: '#/macros/advanced_only'

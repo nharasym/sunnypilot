@@ -31,7 +31,7 @@ class ControlsExt(ModelStateBase):
     self.CP_SP = messaging.log_from_bytes(params.get("CarParamsSP", block=True), custom.CarParamsSP)
     cloudlog.info("controlsd_ext got CarParamsSP")
 
-    self.sm_services_ext = ['radarState', 'selfdriveStateSP']
+    self.sm_services_ext = ['radarState', 'selfdriveStateSP', 'longitudinalPlanSP']
     self.pm_services_ext = ['carControlSP']
 
   def initialize_lateral_control(self, lac, CI, dt):
@@ -103,6 +103,19 @@ class ControlsExt(ModelStateBase):
     CC_SP.intelligentCruiseButtonManagement.state = icbm_src.state
     CC_SP.intelligentCruiseButtonManagement.sendButton = icbm_src.sendButton
     CC_SP.intelligentCruiseButtonManagement.vTarget = icbm_src.vTarget
+
+    # resolved speed limit (m/s, 0 = none) for the Toyota RSA cluster sign feature.
+    # Hold the last known-good limit through gaps (GPS-stale, OSM coverage gaps, the map-data
+    # age gate tripping) so the dash sign persists like a real sign instead of blanking/flickering
+    # — only truly 0 before the first limit of a drive. Uses the resolver's own last-good field,
+    # so Speed Limit Assist's control still sees the age-gated `speedLimit` (safety unchanged).
+    resolver = sm['longitudinalPlanSP'].speedLimit.resolver
+    if resolver.speedLimitValid:
+      CC_SP.speedLimitResolved = float(resolver.speedLimit)
+    elif resolver.speedLimitLastValid:
+      CC_SP.speedLimitResolved = float(resolver.speedLimitLast)
+    else:
+      CC_SP.speedLimitResolved = 0.0
 
     return CC_SP
 
