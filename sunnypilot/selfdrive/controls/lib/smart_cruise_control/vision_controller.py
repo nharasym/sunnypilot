@@ -27,7 +27,18 @@ _TURNING_LAT_ACC_TH = 1.6  # Lat Acc threshold to trigger turning state.
 _LEAVING_LAT_ACC_TH = 1.3  # Lat Acc threshold to trigger leaving turn state.
 _FINISH_LAT_ACC_TH = 1.1  # Lat Acc threshold to trigger the end of the turn cycle.
 
-_A_LAT_REG_MAX = 2.  # Maximum lateral acceleration
+# Maximum lateral acceleration used to derive the curve target speed (v_target = sqrt(A / curvature)).
+# Higher A -> higher target -> less slowing for curves. HL-FEAT(sccv-latacc-tunable): exposed as the
+# SmartCruiseControlVisionLatAccel param (stored x10, e.g. 22 = 2.2 m/s^2), adjustable from
+# Vehicle > Toyota/Lexus in the UI and clamped to a validated range. Default 2.2 was reported
+# on-car as clearly better than stock with only a hair of over-slow left at the top.
+_A_LAT_REG_MAX_DEFAULT = 2.2  # m/s^2
+_A_LAT_REG_MAX_MIN = 2.0
+_A_LAT_REG_MAX_MAX = 2.4
+
+# HL-FIX(sccv-curvature): floor on predicted speed before dividing by it for curvature (w/v).
+# Guards the division from blowing up as the planned trajectory approaches standstill.
+_MIN_PRED_SPEED = 1.0  # m/s
 
 _NO_OVERSHOOT_TIME_HORIZON = 4.  # s. Time to use for velocity desired based on a_target when not overshooting.
 
@@ -60,6 +71,7 @@ class SmartCruiseControlVision:
     self.is_enabled = False
     self.is_active = False
     self.enabled = self.params.get_bool("SmartCruiseControlVision")
+    self.a_lat_reg_max = _A_LAT_REG_MAX_DEFAULT
     self.v_cruise_setpoint = 0.
 
     self.state = VisionState.disabled
@@ -78,26 +90,43 @@ class SmartCruiseControlVision:
   def _update_params(self) -> None:
     if self.frame % int(PARAMS_UPDATE_PERIOD / DT_MDL) == 0:
       self.enabled = self.params.get_bool("SmartCruiseControlVision")
+      # SmartCruiseControlVisionLatAccel is stored x10 (22 = 2.2 m/s^2). Clamp to the validated
+      # range so a bad param can never widen the curve-speed authority beyond what was tested.
+      raw = self.params.get("SmartCruiseControlVisionLatAccel", return_default=True)
+      self.a_lat_reg_max = float(np.clip(float(raw) / 10.0, _A_LAT_REG_MAX_MIN, _A_LAT_REG_MAX_MAX))
 
   def _update_calculations(self, sm: messaging.SubMaster) -> None:
     if not self.long_enabled:
       return
     else:
-      rate_plan = np.array(np.abs(sm['modelV2'].orientationRate.z))
-      vel_plan = np.array(sm['modelV2'].velocity.x)
+      rate_plan = np.asarray(np.abs(sm['modelV2'].orientationRate.z), dtype=float)
+      vel_plan = np.asarray(sm['modelV2'].velocity.x, dtype=float)
+      # HL-FIX(sccv-curvature): the two arrays are consumed elementwise below; reconcile lengths so a
+      # short/ragged model message cannot raise on the ratio. Revert = drop these two lines.
+      size = min(len(rate_plan), len(vel_plan))
+      rate_plan, vel_plan = rate_plan[:size], vel_plan[:size]
 
       self.current_lat_acc = self.v_ego ** 2 * abs(sm['controlsState'].curvature)
 
-      # get the maximum lat accel from the model
-      predicted_lat_accels = rate_plan * vel_plan
-      self.max_pred_lat_acc = np.percentile(predicted_lat_accels, 97)
+      # HL-FIX(sccv-curvature): max_curve was P97(rate*vel) / v_ego**2, mixing a percentile over the
+      # PREDICTED trajectory with the CURRENT speed. A percentile and a division do not commute, so
+      # P97(w*v)/v_ego**2 != P97(w/v) unless v_plan == v_ego. Algebraically the old form reduced to
+      # v_target = v_ego * sqrt(A / P97(w*v)): correct only at constant speed, and degenerating to
+      # v_target == v_ego (no braking demanded, any geometry) when the model plans at its comfort
+      # limit. Curvature is w/v pointwise, so take the percentile of the ratio instead.
+      # Revert = restore the two commented lines below and drop max_pred_curvature.
+      #   max_curve = self.max_pred_lat_acc / (max(self.v_ego, 0.1)**2)
+      #   self.v_target = (_A_LAT_REG_MAX / max_curve) ** 0.5
+      valid = np.isfinite(rate_plan) & np.isfinite(vel_plan) & (vel_plan >= _MIN_PRED_SPEED)
 
-      # get the maximum curve based on the current velocity
-      v_ego = max(self.v_ego, 0.1)  # ensure a value greater than 0 for calculations
-      max_curve = self.max_pred_lat_acc / (v_ego**2)
-
-      # Get the target velocity for the maximum curve
-      self.v_target = (_A_LAT_REG_MAX / max_curve) ** 0.5
+      # max_pred_lat_acc is still lat accel (w*v) - the state machine thresholds are in that space
+      self.max_pred_lat_acc = 0.
+      self.v_target = V_CRUISE_UNSET
+      if np.any(valid):
+        self.max_pred_lat_acc = float(np.percentile(rate_plan[valid] * vel_plan[valid], 97))
+        max_pred_curvature = float(np.percentile(rate_plan[valid] / vel_plan[valid], 97))
+        if max_pred_curvature > 0.:
+          self.v_target = min(float((self.a_lat_reg_max / max_pred_curvature) ** 0.5), V_CRUISE_UNSET)
 
   def _update_state_machine(self) -> tuple[bool, bool]:
     # ENABLED, ENTERING, TURNING, LEAVING, OVERRIDING

@@ -79,3 +79,21 @@ sections:
     - type: param
       key: ToyotaEnforceStockLongitudinal
       equals: false
+  - key: SmartCruiseControlVisionLatAccel
+    widget: multiple_button
+    title: Vision Curve Speed — Max Lateral Accel
+    description: How hard Vision Turn Speed Control may corner before it slows. Higher values slow less for curves (more
+      aggressive); lower values slow more. 2.0 is sunnypilot's default; 2.2 was validated on-car as clearly better than
+      stock with a touch of over-slow left; 2.4 is the most aggressive tested. Takes effect immediately (no reboot).
+    options:
+    - value: 20
+      label: '2.0'
+    - value: 22
+      label: '2.2'
+    - value: 24
+      label: '2.4'
+    enablement:
+    - $ref: '#/macros/offroad'
+    - type: param
+      key: SmartCruiseControlVision
+      equals: true
