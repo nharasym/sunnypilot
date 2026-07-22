@@ -49,6 +49,12 @@ def set_alternative_experience(CP: structs.CarParams, CP_SP: structs.CarParamsSP
     elif steering_mode == MadsSteeringModeOnBrake.PAUSE:
       CP.alternativeExperience |= ALTERNATIVE_EXPERIENCE.MADS_PAUSE_LATERAL_ON_BRAKE
 
+    # experimental: main cruise controls longitudinal only — turning ACC off keeps
+    # lateral engaged (the LDA/LKAS button stays the lateral control). Two-sided:
+    # the panda must not revoke lateral on the acc_main falling edge either.
+    if params.get_bool("MadsMainCruiseKeepLateral"):
+      CP.alternativeExperience |= ALTERNATIVE_EXPERIENCE.MADS_MAIN_CRUISE_KEEP_LATERAL
+
 
 def set_car_specific_params(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params: Params):
   if CP.brand == "hyundai":
