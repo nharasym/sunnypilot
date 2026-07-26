@@ -153,6 +153,13 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"CustomAccLongPressIncrement", {PERSISTENT | BACKUP, INT, "5"}},
     {"CustomAccShortPressIncrement", {PERSISTENT | BACKUP, INT, "1"}},
     {"DeviceBootMode", {PERSISTENT | BACKUP, INT, "0"}},
+    // HL-FEAT(device-lock): dealership lock. DeviceLocked is the source of truth; OffroadMode is
+    // re-asserted from it (boot + every UI tick) so the car stays on its factory ADAS and a local
+    // Always-Offroad toggle-off self-heals. BACKUP so lock+PIN survive a factory reset via sunnylink.
+    {"DeviceLocked", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"DeviceLockPinHash", {PERSISTENT | BACKUP, STRING}},
+    {"DeviceLockAttempts", {PERSISTENT, INT, "0"}},
+    {"DeviceLockPrevOffroadMode", {PERSISTENT, BOOL, "0"}},
     {"DevUIInfo", {PERSISTENT | BACKUP, INT, "0"}},
     {"EnableCopyparty", {PERSISTENT | BACKUP, BOOL}},
     {"EnableGithubRunner", {PERSISTENT | BACKUP, BOOL}},
