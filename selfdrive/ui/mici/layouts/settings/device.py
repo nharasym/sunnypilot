@@ -18,6 +18,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.ui.widgets.label import UnifiedLabel
+from openpilot.sunnypilot.device_lock.lock_setup_mici import device_lock_button_mici  # HL-FEAT(device-lock)
 from openpilot.system.ui.widgets.html_render import HtmlModal, HtmlRenderer
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
 
@@ -346,6 +347,7 @@ class DeviceLayoutMici(NavScroller):
       driver_cam_btn,
       terms_btn,
       regulatory_btn,
+      device_lock_button_mici(),  # HL-FEAT(device-lock)
       reset_calibration_btn,
       uninstall_openpilot_btn,
       reboot_btn,
