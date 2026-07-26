@@ -9,18 +9,8 @@ See the LICENSE.md file in the root directory for more details.
 # Run locally (no device build needed):
 #   uv run --with pytest python -m pytest sunnypilot/device_lock/tests/ --noconftest -o addopts="" -q
 
-import sys
-import types
-
-try:  # on-device/CI the compiled native module exists; locally, stub it before importing lock.py
-  from openpilot.common.params_pyx import Params  # noqa: F401
-except ModuleNotFoundError:  # pragma: no cover - local dev path
-  stub = types.ModuleType("openpilot.common.params_pyx")
-  stub.Params = object
-  stub.ParamKeyFlag = object
-  stub.ParamKeyType = object
-  stub.UnknownKeyName = KeyError
-  sys.modules["openpilot.common.params_pyx"] = stub
+from openpilot.sunnypilot.device_lock.tests._params_stub import ensure_params_stub
+ensure_params_stub()
 
 import pytest
 
