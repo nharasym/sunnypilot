@@ -17,6 +17,11 @@ PARAM_PREV_OFFROAD = "DeviceLockPrevOffroadMode"     # BOOL, PERSISTENT - Offroa
 # params we drive to force the car back to stock while locked
 PARAM_OFFROAD_MODE = "OffroadMode"                   # BOOL, CLEAR_ON_MANAGER_START (re-asserted by us)
 
+# read-only: authoritative onroad state, written by system/manager/helpers.py on the onroad
+# transition. Used to refuse locking mid-drive (locking forces OffroadMode, which would close the
+# panda relay and drop control).
+PARAM_IS_ONROAD = "IsOnroad"
+
 # offroad alert key (registered in selfdrive/selfdrived/alerts_offroad.json)
 OFFROAD_ALERT_LOCKED = "Offroad_DeviceLocked"
 

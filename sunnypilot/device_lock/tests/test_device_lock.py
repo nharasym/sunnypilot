@@ -25,11 +25,11 @@ except ModuleNotFoundError:  # pragma: no cover - local dev path
 import pytest
 
 from openpilot.sunnypilot.device_lock.constants import (
-  PARAM_LOCKED, PARAM_OFFROAD_MODE, PARAM_PIN_HASH, PARAM_PREV_OFFROAD,
+  PARAM_IS_ONROAD, PARAM_LOCKED, PARAM_OFFROAD_MODE, PARAM_PIN_HASH, PARAM_PREV_OFFROAD,
   RATE_LIMIT_AFTER_ATTEMPTS, RATE_LIMIT_BASE_SECONDS,
 )
 from openpilot.sunnypilot.device_lock.lock import (
-  DeviceLock, PinError, check_pin, hash_pin, validate_pin,
+  DeviceLock, LockError, PinError, check_pin, hash_pin, validate_pin,
 )
 
 
@@ -235,6 +235,43 @@ def test_no_pin_set_cannot_unlock(lock):
   assert not lock._params.get(PARAM_PIN_HASH)
   assert not lock.try_unlock("1234")
   assert lock.is_locked()
+
+
+# --- must never engage mid-drive ---
+
+def test_lock_refused_while_onroad(lock):
+  """Locking forces OffroadMode, which drops openpilot - it must never happen while driving."""
+  lock.set_pin("1234")
+  lock._params.put_bool(PARAM_IS_ONROAD, True)
+  with pytest.raises(LockError):
+    lock.lock()
+  assert not lock.is_locked()
+  assert not lock._params.get_bool(PARAM_OFFROAD_MODE), "must not touch OffroadMode when refused"
+
+
+def test_lock_allowed_when_offroad(lock):
+  lock.set_pin("1234")
+  lock._params.put_bool(PARAM_IS_ONROAD, False)
+  lock.lock()
+  assert lock.is_locked()
+
+
+def test_lock_refused_if_car_goes_onroad_mid_dialog(lock):
+  """The race the UI alone can't cover: dialog opened offroad, car onroad before submit."""
+  lock.set_pin("1234")           # dialog opened while offroad
+  lock._params.put_bool(PARAM_IS_ONROAD, True)   # ignition on / starts moving
+  with pytest.raises(LockError):
+    lock.lock()                  # submit
+  assert not lock.is_locked()
+
+
+def test_unlock_is_allowed_onroad(lock):
+  """Unlocking only removes a restriction, so it must not be blocked."""
+  lock.set_pin("1234")
+  lock.lock()
+  lock._params.put_bool(PARAM_IS_ONROAD, True)
+  assert lock.try_unlock("1234")
+  assert not lock.is_locked()
 
 
 # --- remote unlock path must stay open ---

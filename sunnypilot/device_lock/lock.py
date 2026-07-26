@@ -34,6 +34,7 @@ from openpilot.sunnypilot.device_lock.constants import (
   PARAM_ATTEMPTS,
   PARAM_PREV_OFFROAD,
   PARAM_OFFROAD_MODE,
+  PARAM_IS_ONROAD,
   OFFROAD_ALERT_LOCKED,
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
@@ -47,6 +48,10 @@ from openpilot.sunnypilot.device_lock.constants import (
 
 class PinError(ValueError):
   """Raised when a PIN fails policy validation (length / digits)."""
+
+
+class LockError(RuntimeError):
+  """Raised when the lock cannot be engaged right now (e.g. the car is onroad)."""
 
 
 def validate_pin(pin: str) -> None:
@@ -104,12 +109,20 @@ class DeviceLock:
 
   # --- lock / unlock ---
 
+  def is_onroad(self) -> bool:
+    return self._params.get_bool(PARAM_IS_ONROAD)
+
   def lock(self) -> None:
     """Engage the lock: remember the current OffroadMode, then force the car to stock.
 
-    Callers must ensure the car is parked/offroad first (the UI reuses the existing
-    'Disengage to Enter Always Offroad Mode' guard) so this can never yank control mid-drive.
+    Refuses while onroad and raises LockError. Locking forces OffroadMode, which closes the
+    panda relay and drops openpilot - doing that mid-drive would yank control away from the
+    driver. The guard lives here, not just in the UI, so no call path can bypass it (the UI
+    button can be enabled offroad and the car can go onroad before the PIN is submitted).
     """
+    if self.is_onroad():
+      raise LockError("Cannot lock while the car is onroad")
+
     self._params.put_bool(PARAM_PREV_OFFROAD, self._params.get_bool(PARAM_OFFROAD_MODE), block=True)
     self._params.put_bool(PARAM_LOCKED, True, block=True)
     self._reset_attempts()

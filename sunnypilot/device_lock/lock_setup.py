@@ -16,7 +16,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.sunnypilot.device_lock.constants import PARAM_LOCKED
-from openpilot.sunnypilot.device_lock.lock import DeviceLock, PinError
+from openpilot.sunnypilot.device_lock.lock import DeviceLock, LockError, PinError
 from openpilot.sunnypilot.device_lock.pin_screen import BODY_COLOR, PinScreen
 
 
@@ -55,12 +55,13 @@ class LockSetupDialog(PinScreen):
 
     try:
       self._lock.set_pin(pin)
-    except PinError as e:
+      # refuses if the car went onroad while this dialog was open
+      self._lock.lock()
+    except (PinError, LockError) as e:
       self._first = None
       self.set_error(str(e))
       return
 
-    self._lock.lock()
     gui_app.pop_widget()  # mount.py's tick immediately puts up the lock screen
 
 
@@ -69,7 +70,9 @@ def device_lock_item(lock: DeviceLock | None = None):
   _lock = lock if lock is not None else DeviceLock()
 
   def _open():
-    if ui_state.engaged:
+    # match the button's own gate; DeviceLock.lock() re-checks at submit time in case the car
+    # goes onroad while this dialog is open
+    if not ui_state.is_offroad():
       return
     gui_app.push_widget(LockSetupDialog(_lock))
 
