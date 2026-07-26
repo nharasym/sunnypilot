@@ -18,9 +18,9 @@ See the LICENSE.md file in the root directory for more details.
 
 import pyray as rl
 
-from openpilot.system.ui.lib.application import FontWeight
+from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets import Widget
-from openpilot.system.ui.widgets.button import Button, ButtonStyle
+from openpilot.system.ui.widgets.button import DEFAULT_BUTTON_FONT_SIZE, Button, ButtonStyle
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.sunnypilot.device_lock.constants import PIN_ALPHABET, PIN_MAX_LENGTH, PIN_MIN_LENGTH
 
@@ -78,13 +78,19 @@ class PinScreen(Widget):
     super().__init__()
     self._entry = ""
     self._error = ""
+    # Button bakes its font size in at construction (no setter), and the 60px default overruns
+    # the small mici keys - "back" ran outside its box. Scale off the screen height so one
+    # implementation still fits both mici (240 -> ~20) and the big UI (1080 -> capped at default).
+    label_font = max(14, min(DEFAULT_BUTTON_FONT_SIZE, int(gui_app.height * 0.085)))
+
     self._buttons: dict[str, Button] = {}
     for key in KEYPAD:
       # symbol keys draw their glyph on top of an empty button, so Button keeps its own
       # press/touch handling and we only add the artwork
       label = {CLEAR_KEY: "back", ENTER_KEY: "OK"}.get(key, "")
       style = ButtonStyle.PRIMARY if key == ENTER_KEY else ButtonStyle.NORMAL
-      self._buttons[key] = Button(label, lambda k=key: self._on_key(k), button_style=style)
+      self._buttons[key] = Button(label, lambda k=key: self._on_key(k), button_style=style,
+                                  font_size=label_font)
 
   # --- subclass hooks ---
 
