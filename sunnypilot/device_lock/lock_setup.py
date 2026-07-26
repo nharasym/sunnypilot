@@ -29,12 +29,12 @@ class LockSetupDialog(PinScreen):
     self._first: str | None = None
 
   def title(self) -> str:
-    return "CONFIRM PIN" if self._first else "SET LOCK PIN"
+    return "CONFIRM PATTERN" if self._first else "SET UNLOCK PATTERN"
 
   def subtitle(self):
     if self._first:
-      return "Re-enter the PIN to confirm", BODY_COLOR
-    return "This PIN unlocks the device. Do not forget it.", BODY_COLOR
+      return "Enter the same pattern again", BODY_COLOR
+    return "Tap 4-8 symbols. This unlocks the device - do not forget it.", BODY_COLOR
 
   def on_submit(self, pin: str) -> None:
     if self._first is None:
@@ -50,7 +50,7 @@ class LockSetupDialog(PinScreen):
 
     if pin != self._first:
       self._first = None
-      self.set_error("PINs did not match")
+      self.set_error("Patterns did not match")
       return
 
     try:

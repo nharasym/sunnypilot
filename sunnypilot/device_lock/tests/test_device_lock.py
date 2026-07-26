@@ -15,7 +15,8 @@ ensure_params_stub()
 import pytest
 
 from openpilot.sunnypilot.device_lock.constants import (
-  PARAM_IS_ONROAD, PARAM_LOCKED, PARAM_OFFROAD_MODE, PARAM_PIN_HASH, PARAM_PREV_OFFROAD,
+  PARAM_IS_ONROAD, PARAM_LOCKED, PARAM_OFFROAD_MODE, PARAM_PIN_FORMAT, PARAM_PIN_HASH,
+  PARAM_PREV_OFFROAD, PIN_FORMAT_CURRENT,
   RATE_LIMIT_AFTER_ATTEMPTS, RATE_LIMIT_BASE_SECONDS,
 )
 from openpilot.sunnypilot.device_lock.lock import (
@@ -74,31 +75,31 @@ def lock():
 # --- PIN hashing ---
 
 def test_hash_pin_roundtrip():
-  stored = hash_pin("1234")
-  assert check_pin("1234", stored)
-  assert not check_pin("1235", stored)
+  stored = hash_pin("0123")
+  assert check_pin("0123", stored)
+  assert not check_pin("0132", stored)
 
 
 def test_hash_pin_salted_differently_each_time():
   """Same PIN must not produce the same stored value twice (random salt)."""
-  assert hash_pin("1234") != hash_pin("1234")
+  assert hash_pin("0123") != hash_pin("0123")
 
 
 def test_plaintext_pin_never_in_stored_value():
-  assert "1234" not in hash_pin("1234")
+  assert "0123" not in hash_pin("0123")
 
 
 def test_check_pin_rejects_malformed_stored():
   for bad in ("", "nosalt", "zz$zz", None):
-    assert not check_pin("1234", bad)
+    assert not check_pin("0123", bad)
 
 
-@pytest.mark.parametrize("pin", ["1234", "12345678"])
+@pytest.mark.parametrize("pin", ["0123", "01230123"])
 def test_validate_pin_accepts_valid(pin):
   validate_pin(pin)
 
 
-@pytest.mark.parametrize("pin", ["123", "123456789", "abcd", "12a4", ""])
+@pytest.mark.parametrize("pin", ["012", "012301230", "abcd", "01a3", "", "4567", "0129"])
 def test_validate_pin_rejects_invalid(pin):
   with pytest.raises(PinError):
     validate_pin(pin)
@@ -107,23 +108,23 @@ def test_validate_pin_rejects_invalid(pin):
 # --- lock / unlock ---
 
 def test_lock_forces_offroad_mode(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   assert lock.is_locked()
   assert lock._params.get_bool(PARAM_OFFROAD_MODE), "locking must force the car to stock"
 
 
 def test_unlock_with_correct_pin(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  assert lock.try_unlock("1234")
+  assert lock.try_unlock("0123")
   assert not lock.is_locked()
 
 
 def test_unlock_with_wrong_pin_stays_locked(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  assert not lock.try_unlock("9999")
+  assert not lock.try_unlock("3333")
   assert lock.is_locked()
   assert lock._params.get_bool(PARAM_OFFROAD_MODE)
 
@@ -131,18 +132,18 @@ def test_unlock_with_wrong_pin_stays_locked(lock):
 def test_unlock_restores_previous_offroad_mode(lock):
   """A user who already ran Always Offroad keeps it after unlocking."""
   lock._params.put_bool(PARAM_OFFROAD_MODE, True)
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  assert lock.try_unlock("1234")
+  assert lock.try_unlock("0123")
   assert lock._params.get_bool(PARAM_OFFROAD_MODE)
   assert lock._params.get_bool(PARAM_PREV_OFFROAD)
 
 
 def test_unlock_clears_offroad_mode_if_it_was_off(lock):
   lock._params.put_bool(PARAM_OFFROAD_MODE, False)
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  lock.try_unlock("1234")
+  lock.try_unlock("0123")
   assert not lock._params.get_bool(PARAM_OFFROAD_MODE)
 
 
@@ -150,7 +151,7 @@ def test_unlock_clears_offroad_mode_if_it_was_off(lock):
 
 def test_enforce_reverts_local_offroad_toggle_off(lock):
   """Someone clears OffroadMode on the device screen -> next tick puts it back."""
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
 
   lock._params.put_bool(PARAM_OFFROAD_MODE, False)  # simulate the on-screen toggle
@@ -167,7 +168,7 @@ def test_enforce_is_noop_when_unlocked(lock):
 
 
 def test_enforce_idempotent(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   for _ in range(10):
     lock.enforce()
@@ -176,7 +177,7 @@ def test_enforce_idempotent(lock):
 
 def test_clearing_locked_param_is_the_only_way_out(lock):
   """Simulates a remote sunnylink saveParams({'DeviceLocked': '0'}) unlock."""
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   lock._params.put_bool(PARAM_LOCKED, False)  # remote write
   lock.enforce()
@@ -186,46 +187,46 @@ def test_clearing_locked_param_is_the_only_way_out(lock):
 # --- rate limiting ---
 
 def test_rate_limit_kicks_in_after_threshold(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   for _ in range(RATE_LIMIT_AFTER_ATTEMPTS):
-    lock.try_unlock("0000")
+    lock.try_unlock("1111")
   assert lock.is_rate_limited()
   assert lock.cooldown_remaining() > 0
 
 
 def test_correct_pin_refused_while_rate_limited(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   for _ in range(RATE_LIMIT_AFTER_ATTEMPTS):
-    lock.try_unlock("0000")
-  assert not lock.try_unlock("1234"), "must refuse even the right PIN during cooldown"
+    lock.try_unlock("1111")
+  assert not lock.try_unlock("0123"), "must refuse even the right PIN during cooldown"
   assert lock.is_locked()
 
 
 def test_cooldown_expires(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   for _ in range(RATE_LIMIT_AFTER_ATTEMPTS):
-    lock.try_unlock("0000")
+    lock.try_unlock("1111")
   lock._clock.advance(RATE_LIMIT_BASE_SECONDS + 1)
   assert not lock.is_rate_limited()
-  assert lock.try_unlock("1234")
+  assert lock.try_unlock("0123")
 
 
 def test_successful_unlock_resets_attempts(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  lock.try_unlock("0000")
-  lock.try_unlock("1234")
+  lock.try_unlock("1111")
+  lock.try_unlock("0123")
   assert lock.failed_attempts == 0
 
 
 def test_attempts_persist_in_params(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
-  lock.try_unlock("0000")
-  lock.try_unlock("0000")
+  lock.try_unlock("1111")
+  lock.try_unlock("1111")
   assert lock.failed_attempts == 2
 
 
@@ -233,7 +234,7 @@ def test_no_pin_set_cannot_unlock(lock):
   """With no PIN configured, PIN unlock must fail closed (remote unlock still works)."""
   lock._params.put_bool(PARAM_LOCKED, True)
   assert not lock._params.get(PARAM_PIN_HASH)
-  assert not lock.try_unlock("1234")
+  assert not lock.try_unlock("0123")
   assert lock.is_locked()
 
 
@@ -241,7 +242,7 @@ def test_no_pin_set_cannot_unlock(lock):
 
 def test_lock_refused_while_onroad(lock):
   """Locking forces OffroadMode, which drops openpilot - it must never happen while driving."""
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock._params.put_bool(PARAM_IS_ONROAD, True)
   with pytest.raises(LockError):
     lock.lock()
@@ -250,7 +251,7 @@ def test_lock_refused_while_onroad(lock):
 
 
 def test_lock_allowed_when_offroad(lock):
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock._params.put_bool(PARAM_IS_ONROAD, False)
   lock.lock()
   assert lock.is_locked()
@@ -258,7 +259,7 @@ def test_lock_allowed_when_offroad(lock):
 
 def test_lock_refused_if_car_goes_onroad_mid_dialog(lock):
   """The race the UI alone can't cover: dialog opened offroad, car onroad before submit."""
-  lock.set_pin("1234")           # dialog opened while offroad
+  lock.set_pin("0123")           # dialog opened while offroad
   lock._params.put_bool(PARAM_IS_ONROAD, True)   # ignition on / starts moving
   with pytest.raises(LockError):
     lock.lock()                  # submit
@@ -291,11 +292,40 @@ def test_enforce_applies_once_parked(lock):
 
 def test_unlock_is_allowed_onroad(lock):
   """Unlocking only removes a restriction, so it must not be blocked."""
-  lock.set_pin("1234")
+  lock.set_pin("0123")
   lock.lock()
   lock._params.put_bool(PARAM_IS_ONROAD, True)
-  assert lock.try_unlock("1234")
+  assert lock.try_unlock("0123")
   assert not lock.is_locked()
+
+
+# --- stale PIN format must fail safe, not strand the owner ---
+
+def test_pin_written_records_current_format(lock):
+  lock.set_pin("0123")
+  assert lock._params.get(PARAM_PIN_FORMAT) == PIN_FORMAT_CURRENT
+
+
+def test_stale_format_pin_is_treated_as_absent(lock):
+  """A hash written under the old digit alphabet can never match symbol input.
+
+  has_pin() must report False so the lock screen says "unlock from the dashboard" rather than
+  offering input that provably cannot succeed.
+  """
+  lock.set_pin("0123")
+  lock._params.put(PARAM_PIN_FORMAT, 0)  # simulate a pre-symbol PIN
+  assert not lock.has_pin()
+  assert not lock.try_unlock("0123"), "must not accept against a stale-format hash"
+
+
+def test_setting_a_new_pin_clears_the_stale_format(lock):
+  lock._params.put(PARAM_PIN_HASH, "deadbeef$cafe")
+  lock._params.put(PARAM_PIN_FORMAT, 0)
+  assert not lock.has_pin()
+
+  lock.set_pin("0123")
+  assert lock.has_pin()
+  assert lock.try_unlock("0123")
 
 
 # --- the test double must not be more permissive than the real Params ---

@@ -30,8 +30,8 @@ class LockedOverlay(PinScreen):
     if self._lock.is_rate_limited():
       return f"Too many attempts - wait {int(self._lock.cooldown_remaining()) + 1}s", ERROR_COLOR
     if not self._lock.has_pin():
-      return "No PIN set - unlock from the sunnylink dashboard", BODY_COLOR
-    return "Enter PIN to unlock. Vehicle is using factory systems.", BODY_COLOR
+      return "No pattern set - unlock from the sunnylink dashboard", BODY_COLOR
+    return "Enter pattern to unlock. Vehicle is on factory systems.", BODY_COLOR
 
   def input_enabled(self) -> bool:
     return not self._lock.is_rate_limited() and self._lock.has_pin()
@@ -43,4 +43,4 @@ class LockedOverlay(PinScreen):
   def on_submit(self, pin: str) -> None:
     # mount.py's tick notices DeviceLocked cleared and pops this screen
     if not self._lock.try_unlock(pin):
-      self.set_error("Incorrect PIN")
+      self.set_error("Incorrect pattern")

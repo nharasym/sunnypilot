@@ -4,7 +4,7 @@ Lock the device so the car reverts to its **factory driver-assist systems** whil
 powered and plugged in. Intended for leaving the car with someone else (e.g. a dealership) without
 them being able to use or unlock openpilot.
 
-Unlock with a **PIN on the device**, or **remotely from the sunnylink dashboard**.
+Unlock with a **symbol pattern on the device**, or **remotely from the sunnylink dashboard**.
 
 ## How it works
 
@@ -33,12 +33,28 @@ Three layers, in order of importance:
 
 Only clearing `DeviceLocked` — correct PIN, or remote `saveParams` — actually unlocks.
 
-### PIN
+### Unlock pattern (PIN)
 
-PBKDF2-HMAC-SHA256, random per-PIN salt, stored as `salt$hash` in `DeviceLockPinHash`. Plaintext is
-never stored or logged. Wrong attempts persist in `DeviceLockAttempts`; after 5 an escalating
-cooldown starts (60s doubling, capped at 1h). The PIN must be **set on-device** because only the
-device computes the hash — the dashboard never sees plaintext.
+Four controller-style symbols — cross / circle / triangle / square — not digits. Six large targets
+in a 3x2 grid beats twelve cramped ones on mici's 536x240 screen, and a shape pattern is easy to
+remember. Glyphs are drawn with raylib primitives, so nothing depends on font coverage.
+
+Internally a pattern is the characters `"0".."3"` (indices into `PIN_SYMBOLS`), so the hashing is
+alphabet-agnostic: PBKDF2-HMAC-SHA256, random per-pattern salt, stored as `salt$hash` in
+`DeviceLockPinHash`. Plaintext is never stored or logged. Wrong attempts persist in
+`DeviceLockAttempts`; after 5 an escalating cooldown starts (60s doubling, capped at 1h). Must be
+**set on-device** because only the device computes the hash.
+
+`DeviceLockPinFormat` records which alphabet the stored hash used. If it doesn't match the current
+one, `has_pin()` reports False — a hash from an older alphabet can never match what the keypad now
+produces, so the lock screen directs you to the dashboard instead of offering input that cannot
+succeed. Bump `PIN_FORMAT_CURRENT` if the alphabet ever changes again.
+
+**Threat model (owner's, explicit):** stop a dealership from *using* openpilot on a test drive or
+while moving the car around the lot. Not a determined attacker with the car all day. 4 symbols x 4
+positions = 256 combinations; the rate limiter makes casual guessing pointless. Note the cooldown
+timer is in-memory, so a reboot grants one fresh attempt (~65s each) — irrelevant for casual
+misuse, but if the threat model ever hardens, persist the cooldown and/or raise `PIN_MIN_LENGTH`.
 
 ### Remote unlock
 
@@ -54,9 +70,10 @@ Self-contained package (move this whole folder on a re-port):
 |---|---|
 | `constants.py` | param names + all tunables |
 | `lock.py` | state machine: lock/unlock, PIN hash/verify, rate limit, `enforce()` |
-| `pin_screen.py` | shared full-screen numeric PIN entry (big UI + mici) |
+| `pin_screen.py` | shared full-screen symbol-pattern entry + glyph drawing (big UI + mici) |
 | `locked_overlay.py` | the lock screen |
-| `lock_setup.py` | set-PIN-and-lock flow + the Settings row |
+| `lock_setup.py` | set-pattern-and-lock flow + the big-UI Settings row |
+| `lock_setup_mici.py` | the mici Settings button (different widget vocabulary) |
 | `mount.py` | lifecycle: pushes/pops the overlay, runs `enforce()` every frame |
 | `tests/` | unit tests, runnable off-device |
 
@@ -64,17 +81,23 @@ Self-contained package (move this whole folder on a re-port):
 
 Copy this folder, then re-add the hook lines. Find them all with:
 
+**Note there are THREE separate settings UIs** — big UI, mici, and the sunnylink dashboard — each
+with its own tree. Missing one is easy: the row was invisible on the comma 4 the first time because
+only the big-UI panel had been wired.
+
 ```bash
 git grep -n 'HL-FEAT(device-lock)'
 ```
 
 | File | Hook |
 |---|---|
-| `common/params_keys.h` | 4 param declarations |
+| `common/params_keys.h` | 5 param declarations |
 | `system/manager/manager.py` | boot: `if DeviceLocked: OffroadMode=True` |
 | `selfdrive/ui/layouts/main.py` | import + `install_device_lock(self)` (last in `__init__`) |
 | `selfdrive/ui/mici/layouts/main.py` | same, for mici |
-| `selfdrive/ui/sunnypilot/layouts/settings/device.py` | import + `device_lock_item()` row + toggle guard |
+| `selfdrive/ui/sunnypilot/layouts/settings/device.py` | big UI: import + `device_lock_item()` row + Always-Offroad toggle guard |
+| `selfdrive/ui/mici/layouts/settings/device.py` | **mici (comma 4)**: import + `device_lock_button_mici()` in the scroller |
+| `sunnypilot/sunnylink/settings_ui_src/pages/device.yaml` | dashboard `DeviceLocked` toggle (then re-run `compile_settings_ui.py`) |
 | `selfdrive/selfdrived/alerts_offroad.json` | `Offroad_DeviceLocked` entry |
 
 Verify with:
@@ -85,12 +108,12 @@ uv run --with pytest python -m pytest sunnypilot/device_lock/tests/ --noconftest
 
 ## Testing on-device
 
-1. Settings → Device → **Lock Device**, set a PIN. Screen should lock immediately.
+1. Settings → Device → **Lock Device**, set a pattern (entered twice). Screen locks immediately.
 2. Confirm the car uses its factory ADAS and openpilot cannot engage
    (`pandaState.safetyModel == noOutput`).
 3. Power-cycle a few times — it must come back locked every time.
 4. Confirm Settings is unreachable while locked.
-5. Unlock with the PIN. Then re-lock and unlock remotely via the sunnylink dashboard
+5. Unlock with the pattern. Then re-lock and unlock remotely via the sunnylink dashboard
    (`saveParams({"DeviceLocked": "0"})`).
 
 **Note:** the lock only engages while parked/offroad, so it can never remove control mid-drive.

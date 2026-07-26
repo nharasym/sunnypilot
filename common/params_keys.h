@@ -160,6 +160,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"DeviceLockPinHash", {PERSISTENT | BACKUP, STRING}},
     {"DeviceLockAttempts", {PERSISTENT, INT, "0"}},
     {"DeviceLockPrevOffroadMode", {PERSISTENT, BOOL, "0"}},
+    {"DeviceLockPinFormat", {PERSISTENT | BACKUP, INT, "0"}},
     {"DevUIInfo", {PERSISTENT | BACKUP, INT, "0"}},
     {"EnableCopyparty", {PERSISTENT | BACKUP, BOOL}},
     {"EnableGithubRunner", {PERSISTENT | BACKUP, BOOL}},

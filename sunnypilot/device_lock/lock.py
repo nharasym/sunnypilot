@@ -33,9 +33,12 @@ from openpilot.sunnypilot.device_lock.constants import (
   PARAM_PIN_HASH,
   PARAM_ATTEMPTS,
   PARAM_PREV_OFFROAD,
+  PARAM_PIN_FORMAT,
   PARAM_OFFROAD_MODE,
   PARAM_IS_ONROAD,
   OFFROAD_ALERT_LOCKED,
+  PIN_ALPHABET,
+  PIN_FORMAT_CURRENT,
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
   PIN_KDF_ITERATIONS,
@@ -55,11 +58,14 @@ class LockError(RuntimeError):
 
 
 def validate_pin(pin: str) -> None:
-  """Raise PinError if the PIN doesn't meet policy. Digits only, PIN_MIN..PIN_MAX long."""
-  if not pin.isdigit():
-    raise PinError("PIN must be digits only")
+  """Raise PinError if the PIN doesn't meet policy.
+
+  A PIN is PIN_MIN..PIN_MAX symbols, each stored as its index into PIN_SYMBOLS ("0".."3").
+  """
+  if not pin or any(c not in PIN_ALPHABET for c in pin):
+    raise PinError("PIN must use only the four symbols")
   if not PIN_MIN_LENGTH <= len(pin) <= PIN_MAX_LENGTH:
-    raise PinError(f"PIN must be {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digits")
+    raise PinError(f"PIN must be {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} symbols")
 
 
 def hash_pin(pin: str, salt: bytes | None = None) -> str:
@@ -99,12 +105,21 @@ class DeviceLock:
     return self._params.get_bool(PARAM_LOCKED)
 
   def has_pin(self) -> bool:
-    return bool(self._params.get(PARAM_PIN_HASH))
+    """True only if a PIN is stored under the CURRENT alphabet.
+
+    A hash written under an older scheme can never match what the keypad now produces, so it is
+    treated as absent - the lock screen then directs the owner to the dashboard instead of
+    stranding them behind un-enterable input.
+    """
+    if not self._params.get(PARAM_PIN_HASH):
+      return False
+    return (self._params.get(PARAM_PIN_FORMAT, return_default=True) or 0) == PIN_FORMAT_CURRENT
 
   def set_pin(self, pin: str) -> None:
     """Set/replace the unlock PIN. Raises PinError if it fails policy."""
     validate_pin(pin)
     self._params.put(PARAM_PIN_HASH, hash_pin(pin), block=True)
+    self._params.put(PARAM_PIN_FORMAT, PIN_FORMAT_CURRENT, block=True)
     self._reset_attempts()
 
   # --- lock / unlock ---
@@ -158,7 +173,7 @@ class DeviceLock:
     if self.is_rate_limited():
       return False
 
-    stored = self._params.get(PARAM_PIN_HASH)
+    stored = self._params.get(PARAM_PIN_HASH) if self.has_pin() else None
     if not stored or not check_pin(pin, stored):
       self._register_failure()
       return False
