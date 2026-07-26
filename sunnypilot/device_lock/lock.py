@@ -174,8 +174,13 @@ class DeviceLock:
     This is what makes toggling Always Offroad off on the device screen a no-op: the change
     is reverted within a frame. Only clearing DeviceLocked actually stops enforcement.
     Cheap and idempotent - only writes when the value is wrong.
+
+    Never asserts while onroad. lock() already refuses mid-drive, but DeviceLocked can also be
+    set straight into Params by a remote sunnylink saveParams, which bypasses lock() entirely -
+    without this check that would drop control mid-drive. A lock set while driving simply takes
+    effect once the car is parked (or at the next boot, via manager.py).
     """
-    if self.is_locked() and not self._params.get_bool(PARAM_OFFROAD_MODE):
+    if self.is_locked() and not self.is_onroad() and not self._params.get_bool(PARAM_OFFROAD_MODE):
       self._params.put_bool(PARAM_OFFROAD_MODE, True)
 
   # --- rate limiting ---

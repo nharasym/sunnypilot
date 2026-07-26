@@ -265,6 +265,30 @@ def test_lock_refused_if_car_goes_onroad_mid_dialog(lock):
   assert not lock.is_locked()
 
 
+def test_enforce_does_not_drop_control_on_remote_lock_mid_drive(lock):
+  """A remote saveParams({'DeviceLocked':'1'}) writes the param directly, bypassing lock().
+
+  enforce() must not force OffroadMode while onroad or it would drop control mid-drive.
+  """
+  lock._params.put_bool(PARAM_IS_ONROAD, True)
+  lock._params.put_bool(PARAM_LOCKED, True)  # remote write, bypasses lock()
+  lock.enforce()
+  assert not lock._params.get_bool(PARAM_OFFROAD_MODE), "must not force offroad while driving"
+  assert lock.is_locked(), "the lock itself still stands"
+
+
+def test_enforce_applies_once_parked(lock):
+  """The deferred remote lock takes effect as soon as the car is offroad."""
+  lock._params.put_bool(PARAM_IS_ONROAD, True)
+  lock._params.put_bool(PARAM_LOCKED, True)
+  lock.enforce()
+  assert not lock._params.get_bool(PARAM_OFFROAD_MODE)
+
+  lock._params.put_bool(PARAM_IS_ONROAD, False)  # parked
+  lock.enforce()
+  assert lock._params.get_bool(PARAM_OFFROAD_MODE)
+
+
 def test_unlock_is_allowed_onroad(lock):
   """Unlocking only removes a restriction, so it must not be blocked."""
   lock.set_pin("1234")
