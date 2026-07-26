@@ -34,22 +34,32 @@ from openpilot.sunnypilot.device_lock.lock import (
 
 
 class FakeParams:
-  """Minimal in-memory stand-in for Params covering the calls DeviceLock makes."""
+  """In-memory stand-in for Params.
+
+  Signatures MUST match common/params_pyx.pyx exactly. A previous version accepted an
+  `encoding=` kwarg that the real Params.get() does not have; every test passed while the
+  device UI crash-looped on the lock screen. A test double that is more permissive than the
+  real API hides exactly this class of bug, so keep these strict:
+      get(key, block=False, return_default=False)
+      get_bool(key, block=False)
+      put(key, dat, block=False)
+      put_bool(key, val, block=False)
+  """
 
   def __init__(self, initial=None):
     self._d = dict(initial or {})
 
-  def get(self, key, encoding=None, return_default=False):
+  def get(self, key, block=False, return_default=False):
     return self._d.get(key)
 
-  def get_bool(self, key):
+  def get_bool(self, key, block=False):
     return bool(self._d.get(key, False))
 
-  def put(self, key, value, block=False):
-    self._d[key] = value
+  def put(self, key, dat, block=False):
+    self._d[key] = dat
 
-  def put_bool(self, key, value, block=False):
-    self._d[key] = bool(value)
+  def put_bool(self, key, val, block=False):
+    self._d[key] = bool(val)
 
 
 class FakeClock:
@@ -296,6 +306,39 @@ def test_unlock_is_allowed_onroad(lock):
   lock._params.put_bool(PARAM_IS_ONROAD, True)
   assert lock.try_unlock("1234")
   assert not lock.is_locked()
+
+
+# --- the test double must not be more permissive than the real Params ---
+
+def test_no_params_call_uses_a_kwarg_the_real_api_lacks():
+  """Regression: lock.py called Params.get(key, encoding="utf8"); the real signature has no
+  `encoding`. Every test passed (FakeParams accepted it) while the device UI crash-looped on
+  the lock screen. Parse the real signatures out of params_pyx.pyx and check our call sites.
+  """
+  import pathlib
+  import re
+
+  root = pathlib.Path(__file__).parents[3]
+  pyx = (root / "common" / "params_pyx.pyx").read_text()
+
+  allowed: dict[str, set[str]] = {}
+  for m in re.finditer(r"^  def (get|get_bool|put|put_bool|remove)\(self,([^)]*)\)", pyx, re.M):
+    name, args = m.group(1), m.group(2)
+    kwargs = set()
+    for part in args.split(","):
+      part = part.strip()
+      if "=" in part:
+        kwargs.add(part.split("=")[0].strip().split()[-1])
+    allowed[name] = kwargs
+  assert allowed, "could not parse Params signatures from params_pyx.pyx"
+
+  src = (root / "sunnypilot" / "device_lock" / "lock.py").read_text()
+  used = re.findall(r"_params\.(get|get_bool|put|put_bool|remove)\(([^)]*)\)", src)
+  assert used, "no Params calls found - did lock.py move?"
+  for name, argstr in used:
+    for kw in re.findall(r"(\w+)\s*=", argstr):
+      msg = f"lock.py calls Params.{name}({kw}=...) but the real signature only accepts {sorted(allowed[name])}"
+      assert kw in allowed[name], msg
 
 
 # --- remote unlock path must stay open ---

@@ -99,7 +99,7 @@ class DeviceLock:
     return self._params.get_bool(PARAM_LOCKED)
 
   def has_pin(self) -> bool:
-    return bool(self._params.get(PARAM_PIN_HASH, encoding="utf8"))
+    return bool(self._params.get(PARAM_PIN_HASH))
 
   def set_pin(self, pin: str) -> None:
     """Set/replace the unlock PIN. Raises PinError if it fails policy."""
@@ -158,7 +158,7 @@ class DeviceLock:
     if self.is_rate_limited():
       return False
 
-    stored = self._params.get(PARAM_PIN_HASH, encoding="utf8")
+    stored = self._params.get(PARAM_PIN_HASH)
     if not stored or not check_pin(pin, stored):
       self._register_failure()
       return False
