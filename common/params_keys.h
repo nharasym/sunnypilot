@@ -100,6 +100,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Offroad_UnregisteredHardware", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_UpdateFailed", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_DriverMonitoringUncertain", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
+    // HL-FEAT(device-lock): alert key for alerts_offroad.json's Offroad_DeviceLocked entry. Every
+    // registry key MUST be declared here - params_pyx raises UnknownKeyName on undeclared keys,
+    // which silently killed the mici alerts-refresh thread when this was missing (pinned by test).
+    {"Offroad_DeviceLocked", {CLEAR_ON_MANAGER_START, JSON}},
     {"OnroadCycleRequested", {CLEAR_ON_MANAGER_START, BOOL}},
     {"OpenpilotEnabledToggle", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"PandaHeartbeatLost", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
@@ -153,6 +157,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"CustomAccLongPressIncrement", {PERSISTENT | BACKUP, INT, "5"}},
     {"CustomAccShortPressIncrement", {PERSISTENT | BACKUP, INT, "1"}},
     {"DeviceBootMode", {PERSISTENT | BACKUP, INT, "0"}},
+    // HL-FEAT(device-lock): dealership lock. DeviceLocked is the source of truth; OffroadMode is
+    // re-asserted from it (boot + every UI tick) so the car stays on its factory ADAS and a local
+    // Always-Offroad toggle-off self-heals. BACKUP so lock+PIN survive a factory reset via sunnylink.
+    {"DeviceLocked", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"DeviceLockPinHash", {PERSISTENT | BACKUP, STRING}},
+    {"DeviceLockAttempts", {PERSISTENT, INT, "0"}},
+    {"DeviceLockPrevOffroadMode", {PERSISTENT, BOOL, "0"}},
+    {"DeviceLockPinFormat", {PERSISTENT | BACKUP, INT, "0"}},
     {"DevUIInfo", {PERSISTENT | BACKUP, INT, "0"}},
     {"EnableCopyparty", {PERSISTENT | BACKUP, BOOL}},
     {"EnableGithubRunner", {PERSISTENT | BACKUP, BOOL}},
