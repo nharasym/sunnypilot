@@ -73,7 +73,7 @@ Self-contained package (move this whole folder on a re-port):
 | `pin_screen.py` | shared full-screen symbol-pattern entry + glyph drawing (big UI + mici) |
 | `locked_overlay.py` | the lock screen |
 | `lock_setup.py` | set-pattern-and-lock flow + the big-UI Settings row |
-| `lock_setup_mici.py` | the mici Settings button (different widget vocabulary) |
+| `lock_setup_mici.py` | the mici main-settings circle button (different widget vocabulary) |
 | `mount.py` | lifecycle: pushes/pops the overlay, runs `enforce()` every frame |
 | `tests/` | unit tests, runnable off-device |
 
@@ -96,7 +96,7 @@ git grep -n 'HL-FEAT(device-lock)'
 | `selfdrive/ui/layouts/main.py` | import + `install_device_lock(self)` (last in `__init__`) |
 | `selfdrive/ui/mici/layouts/main.py` | same, for mici |
 | `selfdrive/ui/sunnypilot/layouts/settings/device.py` | big UI: import + `device_lock_item()` row + Always-Offroad toggle guard |
-| `selfdrive/ui/mici/layouts/settings/device.py` | **mici (comma 4)**: import + `device_lock_button_mici()` in the scroller |
+| `selfdrive/ui/sunnypilot/mici/layouts/settings.py` | **mici (comma 4)**: import + `device_lock_circle_button_mici()` appended beside the always-offroad circle buttons on the MAIN settings page (not nested under Device) |
 | `sunnypilot/sunnylink/settings_ui_src/pages/device.yaml` | dashboard `DeviceLocked` toggle (then re-run `compile_settings_ui.py`) |
 | `selfdrive/selfdrived/alerts_offroad.json` | `Offroad_DeviceLocked` entry |
 
@@ -108,7 +108,8 @@ uv run --with pytest python -m pytest sunnypilot/device_lock/tests/ --noconftest
 
 ## Testing on-device
 
-1. Settings → Device → **Lock Device**, set a pattern (entered twice). Screen locks immediately.
+1. mici: **Settings → lock circle button** (beside Always Offroad). Big UI: Settings → Device →
+   **Lock Device**. Set a pattern (entered twice). Screen locks immediately.
 2. Confirm the car uses its factory ADAS and openpilot cannot engage
    (`pandaState.safetyModel == noOutput`).
 3. Power-cycle a few times — it must come back locked every time.

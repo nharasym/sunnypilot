@@ -5,26 +5,40 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
-# HL-FEAT(device-lock): mici (comma 4) variant of the Settings > Device entry.
+# HL-FEAT(device-lock): mici (comma 4) entry point for the lock.
 #
-# mici has its own settings tree with a different widget vocabulary (BigButton + texture) from the
-# big UI's list rows, so the button is built separately here. Kept in its own module so the big-UI
-# path never imports mici widgets and vice versa. The dialog itself (LockSetupDialog) is shared.
+# Lives on the MAIN settings page as a circle button beside the Always Offroad controls, not
+# buried inside Settings > Device: the lock is conceptually a sibling of Always Offroad (it
+# *forces* always-offroad), so it belongs at the same level and the same visual weight.
+#
+# mici uses a different widget vocabulary from the big UI (BigCircleButton + texture rather than
+# list rows), so the button is built here; the LockSetupDialog itself is shared.
 
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigCircleButton
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
-from openpilot.sunnypilot.device_lock.constants import PARAM_LOCKED
 from openpilot.sunnypilot.device_lock.lock import DeviceLock
 from openpilot.sunnypilot.device_lock.lock_setup import LockSetupDialog
+from openpilot.sunnypilot.device_lock.mount import is_device_locked
+
+# matches BIG_ICON_SIZE used by the neighbouring always-offroad buttons; the source icon is
+# 126x164, so keep its aspect rather than squashing it to a square
+LOCK_ICON_H = 110
+LOCK_ICON_W = 85
 
 
-def device_lock_button_mici(lock: DeviceLock | None = None) -> BigButton:
-  """Settings > Device button that opens the set-PIN-and-lock flow. Offroad-only."""
+def device_lock_circle_button_mici(lock: DeviceLock | None = None) -> BigCircleButton:
+  """Circle button for the main mici settings page that opens the set-pattern-and-lock flow.
+
+  Only shown while offroad and unlocked: locking is refused onroad by DeviceLock.lock() anyway,
+  and once locked the overlay covers the whole screen so the button is unreachable by definition.
+  """
   _lock = lock if lock is not None else DeviceLock()
 
-  btn = BigButton("lock device", "", gui_app.texture("icons_mici/settings/network/new/lock.png", 64, 64))
+  btn = BigCircleButton(gui_app.texture("icons_mici/settings/network/new/lock.png",
+                                        LOCK_ICON_W, LOCK_ICON_H), red=False)
   btn.set_click_callback(lambda: gui_app.push_widget(LockSetupDialog(_lock)))
-  # DeviceLock.lock() re-checks onroad at submit time; this just greys the button out
-  btn.set_enabled(lambda: ui_state.is_offroad() and not ui_state.params.get_bool(PARAM_LOCKED))
+  # is_device_locked() is the cached flag refreshed by the mount tick - set_visible runs every
+  # frame, so avoid a Params read per frame here
+  btn.set_visible(lambda: not ui_state.started and not is_device_locked())
   return btn
