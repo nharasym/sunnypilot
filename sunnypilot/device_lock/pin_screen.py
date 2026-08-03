@@ -103,6 +103,13 @@ class PinScreen(Widget):
   def on_submit(self, pin: str) -> None:
     raise NotImplementedError
 
+  def on_back_empty(self) -> None:
+    """Back pressed with nothing entered.
+
+    Default is deliberately a no-op: the LOCK SCREEN must never be dismissible, that is the whole
+    point of it. Only the setup flow overrides this to back out.
+    """
+
   def input_enabled(self) -> bool:
     return True
 
@@ -126,6 +133,10 @@ class PinScreen(Widget):
   def _on_key(self, key: str) -> None:
     self._error = ""
     if key == CLEAR_KEY:
+      if not self._entry:
+        # nothing left to delete - let the screen decide whether back means "leave"
+        self.on_back_empty()
+        return
       self._entry = self._entry[:-1]
     elif key == ENTER_KEY:
       if len(self._entry) < PIN_MIN_LENGTH:

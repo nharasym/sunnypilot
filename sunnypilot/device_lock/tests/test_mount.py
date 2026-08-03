@@ -13,8 +13,9 @@ See the LICENSE.md file in the root directory for more details.
 #
 # Run: uv run --with pytest python -m pytest sunnypilot/device_lock/tests/ --noconftest -o addopts="" -q
 
-from openpilot.sunnypilot.device_lock.tests._params_stub import ensure_params_stub
+from openpilot.sunnypilot.device_lock.tests._params_stub import ensure_msgq_stub, ensure_params_stub
 ensure_params_stub()
+ensure_msgq_stub()
 
 import types
 
@@ -178,6 +179,71 @@ def test_first_tick_clears_stale_alert_when_unlocked(monkeypatch):
   mount_mod.install_device_lock(root, lock=DeviceLock(params=FakeParams()))  # first tick in __init__
 
   assert calls and calls[-1] is False, "first tick while unlocked must clear any stale alert"
+
+
+# --- back-to-exit from the setup flow (and NOT from the lock screen) ---
+
+def test_locked_overlay_does_not_override_back_empty():
+  """SAFETY: the lock screen must never be dismissible with the back key.
+
+  PinScreen.on_back_empty is a deliberate no-op; LockedOverlay must inherit it. If someone ever
+  gives the lock screen a back-out, the whole feature is defeated.
+  """
+  from openpilot.sunnypilot.device_lock.locked_overlay import LockedOverlay
+  from openpilot.sunnypilot.device_lock.pin_screen import PinScreen
+
+  assert LockedOverlay.on_back_empty is PinScreen.on_back_empty
+
+
+def test_back_on_empty_entry_routes_to_hook():
+  """_on_key must call on_back_empty when there is nothing left to delete."""
+  from openpilot.sunnypilot.device_lock.pin_screen import CLEAR_KEY, PinScreen
+
+  scr = object.__new__(PinScreen)
+  scr._entry = ""
+  scr._error = ""
+  called = []
+  scr.on_back_empty = lambda: called.append(True)
+  PinScreen._on_key(scr, CLEAR_KEY)
+  assert called, "back on an empty entry must invoke on_back_empty"
+
+  # with content, back deletes instead of invoking the hook
+  scr._entry = "012"
+  called.clear()
+  PinScreen._on_key(scr, CLEAR_KEY)
+  assert scr._entry == "01" and not called
+
+
+def test_setup_back_empty_first_stage_exits(monkeypatch):
+  """The reported bug: pressing back until empty left no way out of the setup screen."""
+  from openpilot.sunnypilot.device_lock import lock_setup
+
+  popped = []
+  monkeypatch.setattr(lock_setup.gui_app, "pop_widget", lambda *a, **k: popped.append(True))
+
+  dlg = object.__new__(lock_setup.LockSetupDialog)
+  dlg._first = None
+  dlg._entry = ""
+  dlg._error = ""
+  dlg.on_back_empty()
+  assert popped, "back on an empty first-stage pattern must leave the setup screen"
+
+
+def test_setup_back_empty_confirm_stage_returns_to_first(monkeypatch):
+  """In the confirm stage, back steps BACK a stage rather than exiting outright."""
+  from openpilot.sunnypilot.device_lock import lock_setup
+
+  popped = []
+  monkeypatch.setattr(lock_setup.gui_app, "pop_widget", lambda *a, **k: popped.append(True))
+
+  dlg = object.__new__(lock_setup.LockSetupDialog)
+  dlg._first = "0123"
+  dlg._entry = ""
+  dlg._error = "Patterns did not match"
+  dlg.on_back_empty()
+
+  assert dlg._first is None, "must return to the first-pattern stage"
+  assert not popped, "must NOT exit the dialog from the confirm stage"
 
 
 def test_cached_is_device_locked_tracks_state(env):

@@ -43,6 +43,29 @@ class StubParams:
     self._d.pop(key, None)
 
 
+def ensure_msgq_stub() -> None:
+  """Stub the compiled msgq/cereal messaging layer.
+
+  lock_setup imports ui_state, which imports cereal.messaging -> msgq.ipc_pyx (a compiled
+  extension absent off-device). Only import-time resolution is needed; the tests never send
+  or receive messages.
+  """
+  try:
+    import msgq.ipc_pyx  # noqa: F401
+    return
+  except Exception:
+    pass
+  if "msgq.ipc_pyx" in sys.modules:
+    return
+
+  ipc = types.ModuleType("msgq.ipc_pyx")
+  for name in ("Context", "Poller", "SubSocket", "PubSocket", "MultiplePublishersError",
+               "IpcError", "SocketEventHandle", "toggle_fake_events", "set_fake_prefix",
+               "get_fake_prefix", "delete_fake_prefix", "wait_for_one_event"):
+    setattr(ipc, name, type(name, (Exception,), {}) if "Error" in name else (lambda *a, **k: None))
+  sys.modules["msgq.ipc_pyx"] = ipc
+
+
 def ensure_params_stub() -> None:
   """Install the stub if the compiled extension isn't present. Safe to call repeatedly."""
   try:

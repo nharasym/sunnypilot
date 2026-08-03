@@ -12,12 +12,13 @@ See the LICENSE.md file in the root directory for more details.
 # Once engaged, mount.py's tick puts up the lock screen and Settings becomes unreachable.
 
 from openpilot.system.ui.lib.application import gui_app
-from openpilot.system.ui.lib.multilang import tr
-from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp
-from openpilot.selfdrive.ui.ui_state import ui_state
-from openpilot.sunnypilot.device_lock.constants import PARAM_LOCKED
 from openpilot.sunnypilot.device_lock.lock import DeviceLock, LockError, PinError
 from openpilot.sunnypilot.device_lock.pin_screen import BODY_COLOR, PinScreen
+
+# NOTE: ui_state / list_view / multilang are imported lazily inside device_lock_item() below.
+# They pull in the whole cereal messaging stack at import time, which the dialog itself does not
+# need - keeping them out of module scope lets LockSetupDialog be imported (and unit-tested)
+# without a compiled msgq present.
 
 
 class LockSetupDialog(PinScreen):
@@ -35,6 +36,19 @@ class LockSetupDialog(PinScreen):
     if self._first:
       return "Enter the same pattern again", BODY_COLOR
     return "Tap 4-8 symbols. This unlocks the device - do not forget it.", BODY_COLOR
+
+  def on_back_empty(self) -> None:
+    """Back with an empty pattern: step back a stage, then out of the dialog entirely.
+
+    Without this the setup screen is a trap - there is no other way out except completing the
+    lock or waiting for the display to time out.
+    """
+    if self._first is not None:
+      # in the confirm stage: return to entering the first pattern
+      self._first = None
+      self.set_error("")
+      return
+    gui_app.pop_widget()
 
   def on_submit(self, pin: str) -> None:
     if self._first is None:
@@ -66,7 +80,12 @@ class LockSetupDialog(PinScreen):
 
 
 def device_lock_item(lock: DeviceLock | None = None):
-  """Settings > Device row that opens the lock flow. Offroad-only, like the other risky actions."""
+  """Settings > Device row (big UI) that opens the lock flow. Offroad-only, like other risky actions."""
+  from openpilot.selfdrive.ui.ui_state import ui_state
+  from openpilot.system.ui.lib.multilang import tr
+  from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp
+  from openpilot.sunnypilot.device_lock.constants import PARAM_LOCKED
+
   _lock = lock if lock is not None else DeviceLock()
 
   def _open():
