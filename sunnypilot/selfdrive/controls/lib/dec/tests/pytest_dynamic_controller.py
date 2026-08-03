@@ -79,6 +79,23 @@ def test_emergency_blended_on_fcw(mock_cp, mock_mpc, default_sm):
     controller.update(default_sm)
   assert controller.mode() == "blended"
 
+def test_fcw_detected_on_the_first_frame(mock_cp, mock_mpc, default_sm):
+  """HL-FIX(dec-fcw-order): the FCW filter must be add_data()-then-get_value().
+
+  With the original get-then-add ordering the filter is still uninitialized when the decision is
+  made, so get_value() returns None -> 0.0 and this frame's crash_cnt is ignored for a full cycle.
+  That is a one-frame lag on the EMERGENCY path, which bypasses mode hysteresis and so has nothing
+  downstream to absorb it (~50 ms ~= 1.5 m of extra stopping distance at speed).
+
+  One update must therefore be enough. Note test_emergency_blended_on_fcw above uses range(2) --
+  that second frame was papering over exactly this lag.
+  """
+  controller = DynamicExperimentalController(mock_cp, mock_mpc, params=MockParams())
+  mock_mpc.crash_cnt = 1  # crash predicted on the very first frame
+  controller.update(default_sm)
+  assert controller.mode() == "blended", "FCW must take effect on the frame it is detected"
+
+
 def test_radarless_slowdown_triggers_blended(mock_cp, mock_mpc, default_sm):
   mock_cp.radarUnavailable = True
   controller = DynamicExperimentalController(mock_cp, mock_mpc, params=MockParams())
