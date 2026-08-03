@@ -12,6 +12,7 @@ from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, Bi
 from openpilot.selfdrive.ui.sunnypilot.mici.layouts.sunnylink import SunnylinkLayoutMici
 from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import ModelsLayoutMici
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.sunnypilot.device_lock.lock_setup_mici import device_lock_circle_button_mici  # HL-FEAT(device-lock)
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 
@@ -54,6 +55,10 @@ class SettingsLayoutSP(OP.SettingsLayout):
     self._disable_offroad_btn.set_click_callback(lambda: self._handle_always_offroad(False))
     self._disable_offroad_btn.set_visible(lambda: ui_state.always_offroad)
 
+    # HL-FEAT(device-lock): sibling of the always-offroad controls - the lock forces always-offroad,
+    # so it sits at the same level rather than nested inside Settings > Device.
+    self._device_lock_btn = device_lock_circle_button_mici()
+
     items = self._scroller._items.copy()
 
     items.insert(1, sunnylink_btn)
@@ -64,6 +69,7 @@ class SettingsLayoutSP(OP.SettingsLayout):
     items.insert(0, self._disable_offroad_btn)
     # end slot: enable-offroad (right of developer)
     items.append(self._enable_offroad_btn_offroad)
+    items.append(self._device_lock_btn)  # HL-FEAT(device-lock): beside always-offroad
 
     self._scroller._items.clear()
     for item in items:
