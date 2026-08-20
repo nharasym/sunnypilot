@@ -41,6 +41,12 @@ def manager_init() -> None:
   if params.get("DeviceBootMode") == 1:  # start in Always Offroad mode
     params.put_bool("OffroadMode", True, block=True)
 
+  # HL-FEAT(device-lock): while locked, force Always Offroad on every boot so the car comes up on
+  # its factory ADAS. OffroadMode is CLEAR_ON_MANAGER_START, so this re-assert is what makes the
+  # lock survive power cycles. Only clearing DeviceLocked (PIN or remote sunnylink) stops it.
+  if params.get_bool("DeviceLocked"):
+    params.put_bool("OffroadMode", True, block=True)
+
   # quick boot
   if params.get_bool("QuickBootToggle") and not PC:
     prebuilt_path = "/data/openpilot/prebuilt"
