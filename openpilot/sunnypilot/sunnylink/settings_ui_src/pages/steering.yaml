@@ -33,6 +33,16 @@ sections:
       enablement:
       - $ref: '#/macros/offroad'
       - $ref: '#/macros/mads_full_platforms'
+    - key: MadsMainCruiseKeepLateral
+      widget: toggle
+      title: Keep Lateral When ACC Turns Off (Experimental)
+      needs_onroad_cycle: true
+      description: 'Experimental: the ACC main on/off button controls longitudinal only. Turning ACC off no longer disables
+        lateral steering — the LFA/LKAS button stays your lateral control. Requires a car restart to take effect.'
+      enablement:
+      - $ref: '#/macros/offroad'
+      - $ref: '#/macros/advanced_only'
+      - $ref: '#/macros/mads_full_platforms'
     - key: MadsUnifiedEngagementMode
       widget: toggle
       title: Unified Engagement Mode (UEM)
