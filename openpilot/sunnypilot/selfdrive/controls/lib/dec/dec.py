@@ -222,8 +222,12 @@ class DynamicExperimentalController:
     self._has_lead_filtered = lead_value > WMACConstants.LEAD_PROB
 
     # MPC FCW detection
-    fcw_filtered_value = self._mpc_fcw_filter.get_value() or 0.0
+    # HL-FIX(dec-fcw-order): was get_value() before add_data(), so this frame's crash_cnt could not
+    # affect the decision until the next cycle - a built-in one-frame lag on the emergency path,
+    # which bypasses mode hysteresis and so has nothing downstream to absorb it. Every other filter
+    # in this function (see lead detection above) is add-then-get. Revert = swap these two lines back.
     self._mpc_fcw_filter.add_data(float(self._mpc_fcw_crash_cnt > 0))
+    fcw_filtered_value = self._mpc_fcw_filter.get_value() or 0.0
     self._has_mpc_fcw = fcw_filtered_value > 0.5
 
     # Slow down detection
