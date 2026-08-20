@@ -46,7 +46,8 @@ def setup_sm_mock(mocker):
     'speedLimitAheadDistance': 0.,
   }, mocker)
   gps_data = create_mock({
-    'unixTimestampMillis': time.monotonic() * 1e3,
+    # UTC epoch millis, as ubloxd/qcomgpsd publish it — not a monotonic timestamp
+    'unixTimestampMillis': time.time() * 1e3,  # noqa: TID251
   }, mocker)
   sm_mock = mocker.MagicMock()
   sm_mock.__getitem__.side_effect = lambda key: {
@@ -141,7 +142,38 @@ class TestSpeedLimitResolverValidation(OpenpilotTestCase):
     resolver = resolver_class()
     resolver.policy = policy
     sm_mock = mocker.MagicMock()
-    sm_mock['gpsLocation'].unixTimestampMillis = (time.monotonic() - 2 * LIMIT_MAX_MAP_DATA_AGE) * 1e3
+    sm_mock['gpsLocation'].unixTimestampMillis = (time.time() - 2 * LIMIT_MAX_MAP_DATA_AGE) * 1e3  # noqa: TID251
     resolver._get_from_map_data(sm_mock)
     assert resolver.limit_solutions[SpeedLimitSource.map] == 0.
     assert resolver.distance_solutions[SpeedLimitSource.map] == 0.
+
+  def test_fresh_map_data_used(self, resolver_class, mocker):
+    """A current fix must NOT be discarded — guards the inverse of test_old_map_data_ignored."""
+    resolver = resolver_class()
+    resolver.policy = Policy.map_data_only
+    resolver.v_ego = 0.  # normally set by update(); _calculate_map_data_limits reads it for the lookahead distance
+    sm_mock = setup_sm_mock(mocker)
+    resolver._get_from_map_data(sm_mock)
+    assert resolver.limit_solutions[SpeedLimitSource.map] == sm_mock['liveMapDataSP'].speedLimit
+
+  def test_gps_fix_age_uses_wall_clock(self, resolver_class, mocker):
+    """Regression: unixTimestampMillis is UTC epoch, so age must be measured against wall clock.
+
+    Measuring it against time.monotonic() made the age hugely negative, so
+    LIMIT_MAX_MAP_DATA_AGE never tripped and stale map data was always accepted.
+    """
+    resolver = resolver_class()
+
+    fresh = create_mock({'unixTimestampMillis': time.time() * 1e3}, mocker)  # noqa: TID251
+    assert resolver._get_gps_fix_age(fresh) < LIMIT_MAX_MAP_DATA_AGE
+
+    stale = create_mock({'unixTimestampMillis': (time.time() - 3600) * 1e3}, mocker)  # noqa: TID251
+    assert resolver._get_gps_fix_age(stale) > LIMIT_MAX_MAP_DATA_AGE
+
+    # ubloxd publishes 0 when the receiver reports an invalid date -> must read as stale, not fresh
+    unset = create_mock({'unixTimestampMillis': 0}, mocker)
+    assert resolver._get_gps_fix_age(unset) > LIMIT_MAX_MAP_DATA_AGE
+
+    # a monotonic-scale timestamp (the old bug's assumption) must not read as fresh
+    monotonic_scale = create_mock({'unixTimestampMillis': time.monotonic() * 1e3}, mocker)
+    assert resolver._get_gps_fix_age(monotonic_scale) > LIMIT_MAX_MAP_DATA_AGE
