@@ -23,6 +23,13 @@ SafetyModel = structs.CarParams.SafetyModel
 SET_SPEED_BUTTONS = (ButtonType.accelCruise, ButtonType.resumeCruise, ButtonType.decelCruise, ButtonType.setCruise)
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
 
+# Consecutive 100Hz loops of panda/selfdrived lateral disagreement tolerated before disengaging.
+# Anchored to SubMaster's 1.0s alive tolerance for the 10Hz pandaStates stream: any pure pipeline
+# stall long enough to trip this guard independently raises commIssue, so a solo fire can only mean
+# genuine fresh disagreement — while still leaving ~0.9s of margin before the Toyota EPS's measured
+# ~2s message-dropout fault escalation.
+LATERAL_MISMATCH_MAX_COUNT = 100
+
 
 class ModularAssistiveDrivingSystem:
   def __init__(self, selfdrive):
@@ -47,6 +54,12 @@ class ModularAssistiveDrivingSystem:
         self.allow_always = True
     if self.CP.brand == "tesla":
       self.allow_always = True
+    if self.CP.brand == "toyota":
+      # physical LDA button; stock LTA has no ACC-main requirement, so the press must not
+      # be dropped by the cruiseState.available gate (else the drive's first press is
+      # silently eaten). The panda LDA decode is unconditional to match — the two gates
+      # must change together or the permission layers desync (EPS starvation).
+      self.allow_always = True
 
     if self.CP.brand in MADS_NO_ACC_MAIN_BUTTON:
       self.no_main_cruise = True
@@ -56,10 +69,12 @@ class ModularAssistiveDrivingSystem:
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
     self.steering_mode_on_brake = read_steering_mode_param(self.CP, self.CP_SP, self.params)
     self.unified_engagement_mode = self.params.get_bool("MadsUnifiedEngagementMode")
+    self.main_cruise_keep_lateral = self.params.get_bool("MadsMainCruiseKeepLateral")
 
   def read_params(self):
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
     self.unified_engagement_mode = self.params.get_bool("MadsUnifiedEngagementMode")
+    self.main_cruise_keep_lateral = self.params.get_bool("MadsMainCruiseKeepLateral")
 
   def pedal_pressed_non_gas_pressed(self, CS: structs.CarState) -> bool:
     # ignore `pedalPressed` events caused by gas presses
@@ -109,12 +124,21 @@ class ModularAssistiveDrivingSystem:
     # When the safety and selfdrived do not agree on controls_allowed_lateral
     # we want to disengage sunnypilot. However the status from the panda goes through
     # another socket other than the CAN messages and one can arrive earlier than the other.
-    # Therefore we allow a mismatch for two samples, then we trigger the disengagement.
+    # Therefore we tolerate up to LATERAL_MISMATCH_MAX_COUNT loops (~1s, ~10 pandaStates
+    # samples) of sustained disagreement before disengaging. While mismatched, the panda
+    # blocks every nonzero-torque steering frame, which starves the EPS on some brands
+    # (e.g. Toyota LKA_STATE dropout faults) — so this must stay well under 2s.
     if not self.active or self.selfdrive.enabled:
       self.lateral_mismatch_counter = 0
     elif any(not ps.controlsAllowedLateral for ps in self.selfdrive.sm['pandaStates']
              if ps.safetyModel not in IGNORED_SAFETY_MODES):
       self.lateral_mismatch_counter += 1
+    else:
+      # agreement decays the counter instead of clearing it: one-shot engagement
+      # transients still drain to zero and can never accumulate into a disengagement,
+      # but a persistent flickering desync (panda torque-blocking a large fraction of
+      # frames with brief agreeing gaps) still trips the threshold
+      self.lateral_mismatch_counter = max(0, self.lateral_mismatch_counter - 1)
 
   def update_events(self, CS: structs.CarState):
     if not self.selfdrive.enabled and self.enabled:
@@ -175,6 +199,11 @@ class ModularAssistiveDrivingSystem:
         if self.enabled:
           if self.selfdrive.enabled:
             self.events_sp.add(EventNameSP.manualSteeringRequired)
+          elif not self.active:
+            # enabled but paused (e.g. after reverse gear): the driver's press means
+            # "start steering", not "turn MADS off" — without this, re-engaging from a
+            # pause takes two presses (the first silently disables, the second enables)
+            self.events_sp.add(EventNameSP.lkasEnable)
           else:
             self.events_sp.add(EventNameSP.lkasDisable)
         else:
@@ -182,7 +211,10 @@ class ModularAssistiveDrivingSystem:
 
     if not CS.cruiseState.available and not self.no_main_cruise:
       self.events.remove(EventName.buttonEnable)
-      if self.selfdrive.CS_prev.cruiseState.available:
+      # main cruise going unavailable normally disables lateral (master off). With
+      # main_cruise_keep_lateral, main cruise controls longitudinal only and lateral
+      # stays engaged — the panda skips its acc_main-off revoke to match (helpers.py).
+      if self.selfdrive.CS_prev.cruiseState.available and not self.main_cruise_keep_lateral:
         self.events_sp.add(EventNameSP.lkasDisable)
 
     if self.steering_mode_on_brake == MadsSteeringModeOnBrake.DISENGAGE:
@@ -199,7 +231,7 @@ class ModularAssistiveDrivingSystem:
       if self.state_machine.state == State.paused:
         self.events_sp.add(EventNameSP.silentLkasEnable)
 
-    if self.lateral_mismatch_counter >= 200:
+    if self.lateral_mismatch_counter >= LATERAL_MISMATCH_MAX_COUNT:
       self.events_sp.add(EventNameSP.controlsMismatchLateral)
 
     self.events.remove(EventName.pcmDisable)
