@@ -62,6 +62,7 @@ def sp_stats(end_event):
     'ShowAdvancedControls',
     'Mads',
     'MadsMainCruiseAllowed',
+    'MadsMainCruiseKeepLateral',
     'MadsSteeringMode',
     'MadsUnifiedEngagementMode',
     'ModelManager_ActiveBundle',
