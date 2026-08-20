@@ -1,4 +1,9 @@
 {
+  "Offroad_DeviceLocked": {
+    "text": "Device is locked. sunnypilot is disabled and the vehicle is using its factory driver-assist systems. Enter your PIN on the device, or unlock remotely from the sunnylink dashboard.",
+    "severity": 1,
+    "_comment": "HL-FEAT(device-lock): shown while DeviceLocked is set"
+  },
   "Offroad_TemperatureTooHigh": {
     "text": "Device temperature too high. System cooling down before starting. Current internal component temperature: %1",
     "severity": 0
