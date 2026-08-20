@@ -17,6 +17,7 @@ from openpilot.system.ui.widgets.button import ButtonStyle
 from openpilot.system.ui.widgets.confirm_dialog import alert_dialog, ConfirmDialog
 from openpilot.system.ui.widgets.list_view import text_item
 from openpilot.system.ui.widgets.scroller_tici import LineSeparator
+from openpilot.sunnypilot.device_lock.lock_setup import device_lock_item  # HL-FEAT(device-lock)
 
 offroad_time_options = {
   0: 0,
@@ -122,6 +123,8 @@ class DeviceLayoutSP(DeviceLayout):
       self._device_wake_mode,
       LineSeparator(),
       self._max_time_offroad,
+      LineSeparator(),
+      device_lock_item(),  # HL-FEAT(device-lock)
       LineSeparator(height=10),
       self._quiet_mode_and_dcam,
       self._reg_and_training,
@@ -168,6 +171,12 @@ class DeviceLayoutSP(DeviceLayout):
   def _handle_always_offroad():
     if ui_state.engaged:
       gui_app.push_widget(alert_dialog(tr("Disengage to Enter Always Offroad Mode")))
+      return
+
+    # HL-FEAT(device-lock): while locked, Always Offroad is owned by the lock and re-asserted every
+    # frame. Refuse the toggle outright rather than let it flip and silently snap back.
+    if ui_state.params.get_bool("DeviceLocked"):
+      gui_app.push_widget(alert_dialog(tr("Device is locked. Unlock to change Always Offroad.")))
       return
 
     _offroad_mode_state = ui_state.params.get_bool("OffroadMode")
