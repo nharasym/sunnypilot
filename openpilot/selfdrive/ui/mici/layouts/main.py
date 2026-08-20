@@ -10,6 +10,7 @@ from openpilot.selfdrive.ui.body.layouts.onroad import BodyLayout
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller import Scroller
 from openpilot.system.ui.lib.application import gui_app
+from openpilot.sunnypilot.device_lock.mount import install_device_lock  # HL-FEAT(device-lock)
 
 if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.mici.layouts.settings import SettingsLayoutSP as SettingsLayout
@@ -66,6 +67,9 @@ class MiciMainLayout(Scroller):
 
     # initialize correct onroad layout
     self._on_body_changed()
+
+    # HL-FEAT(device-lock): mount last so the lock screen sits on top of everything
+    self._device_lock = install_device_lock(self)
 
   @property
   def _onroad_layout(self) -> Widget:
