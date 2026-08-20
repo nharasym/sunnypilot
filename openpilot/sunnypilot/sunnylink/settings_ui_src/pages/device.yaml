@@ -14,6 +14,15 @@ sections:
   - key: OffroadMode
     widget: toggle
     title: Force Offroad Mode
+  # HL-FEAT(device-lock): remote lock/unlock. Turning this off is the recovery path if the PIN is
+  # forgotten, so DeviceLocked must stay out of sunnylinkd's BLOCKED_PARAMS (pinned by a test).
+  # Locking here takes effect once the car is parked - enforce() never engages mid-drive.
+  - key: DeviceLocked
+    widget: toggle
+    title: Lock Device
+    description: Disables sunnypilot and reverts the vehicle to its factory driver-assist systems, then locks the device
+      screen. Use when leaving the car with someone else. Turn off here to unlock remotely, or enter the PIN on the device.
+      Set the PIN on the device (Settings > Device > Lock Device) - it cannot be set remotely.
   - key: DeviceBootMode
     widget: option
     title: Wake Up Behavior
