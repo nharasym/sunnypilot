@@ -119,11 +119,23 @@ class SpeedLimitResolver:
     self._reset_limit_sources(SpeedLimitSource.map)
     self._process_map_data(sm)
 
+  @staticmethod
+  def _get_gps_fix_age(gps_data) -> float:
+    """Age, in seconds, of the GPS fix backing the map data.
+
+    unixTimestampMillis is a UTC epoch timestamp (ubloxd builds it from NAV-PVT, qcomgpsd from
+    datetime.timestamp()), so it has to be compared against wall clock. Comparing it against
+    time.monotonic() yields a large negative age that never trips the staleness check.
+    ubloxd emits 0 when the receiver reports an invalid date; that reads as a huge age here,
+    which correctly discards the fix.
+    """
+    return max(0., time.time() - gps_data.unixTimestampMillis * 1e-3)  # noqa: TID251
+
   def _process_map_data(self, sm: messaging.SubMaster) -> None:
     gps_data = sm[self._gps_location_service]
     map_data = sm['liveMapDataSP']
 
-    gps_fix_age = time.monotonic() - gps_data.unixTimestampMillis * 1e-3
+    gps_fix_age = self._get_gps_fix_age(gps_data)
     if gps_fix_age > LIMIT_MAX_MAP_DATA_AGE:
       return
 
@@ -136,7 +148,7 @@ class SpeedLimitResolver:
     gps_data = sm[self._gps_location_service]
     map_data = sm['liveMapDataSP']
 
-    distance_since_fix = self.v_ego * (time.monotonic() - gps_data.unixTimestampMillis * 1e-3)
+    distance_since_fix = self.v_ego * self._get_gps_fix_age(gps_data)
     distance_to_speed_limit_ahead = max(0., map_data.speedLimitAheadDistance - distance_since_fix)
 
     self.limit_solutions[SpeedLimitSource.map] = speed_limit
