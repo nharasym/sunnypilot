@@ -81,6 +81,54 @@
                   ]
                 },
                 {
+                  "key": "MadsMainCruiseKeepLateral",
+                  "widget": "toggle",
+                  "needs_onroad_cycle": true,
+                  "title": "Keep Lateral When ACC Turns Off (Experimental)",
+                  "description": "Experimental: the ACC main on/off button controls longitudinal only. Turning ACC off no longer disables lateral steering \u2014 the LFA/LKAS button stays your lateral control. Requires a car restart to take effect.",
+                  "enablement": [
+                    {
+                      "type": "offroad_only"
+                    },
+                    {
+                      "type": "param",
+                      "key": "ShowAdvancedControls",
+                      "equals": true
+                    },
+                    {
+                      "type": "not",
+                      "condition": {
+                        "type": "any",
+                        "conditions": [
+                          {
+                            "type": "capability",
+                            "field": "brand",
+                            "equals": "rivian"
+                          },
+                          {
+                            "type": "all",
+                            "conditions": [
+                              {
+                                "type": "capability",
+                                "field": "brand",
+                                "equals": "tesla"
+                              },
+                              {
+                                "type": "not",
+                                "condition": {
+                                  "type": "capability",
+                                  "field": "tesla_has_vehicle_bus",
+                                  "equals": true
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
                   "key": "MadsUnifiedEngagementMode",
                   "widget": "toggle",
                   "title": "Unified Engagement Mode (UEM)",
