@@ -101,3 +101,13 @@ sections:
     - type: param
       key: ToyotaEnforceStockLongitudinal
       equals: false
+  - key: BsmApproachingAlert
+    widget: toggle
+    title: Approaching Vehicle Alert
+    description: Chime when your turn signal is on toward a side where the factory blind spot radar detects a fast-approaching
+      vehicle that is not beside you yet. Covers the highway-merge case the mirror light is easy to miss on. Fires once per
+      approach, only above ~11 mph.
+    enablement:
+    - type: capability
+      field: enable_bsm
+      equals: true
