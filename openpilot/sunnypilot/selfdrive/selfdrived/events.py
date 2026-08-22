@@ -260,4 +260,18 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       AlertStatus.normal, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.),
   },
+
+  # HL-FEAT(bsm-approaching): driver signaled toward a side where the factory BSM radar
+  # flags a fast-approaching vehicle. promptSingleHigh plays once per alert activation.
+  # ET.PERMANENT (e2eChime precedent), NOT ET.WARNING: warnings are suppressed unless
+  # openpilot/MADS is actively engaged, and this alert must also cover fully-manual and
+  # MADS-paused merges. Short duration so a deliberate re-trigger gap resets the alert
+  # identity and replays the sound; the hold comes from re-adding the event each frame.
+  EventNameSP.bsmApproaching: {
+    ET.PERMANENT: Alert(
+      "Vehicle Approaching Blind Spot",
+      "",
+      AlertStatus.userPrompt, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlertSP.promptSingleHigh, 0.1),
+  },
 }
