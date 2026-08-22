@@ -52,6 +52,7 @@ def sp_stats(end_event):
     'SunnylinkEnabled',
     'AutoLaneChangeBsmDelay',
     'AutoLaneChangeTimer',
+    'BsmApproachingAlert',
     'CarPlatformBundle',
     'CurrentRoute',
     'DevUIInfo',
