@@ -369,10 +369,15 @@ def main(demo=False):
       model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=True)
     t = threading.Thread(target=load, daemon=True)
     t.start()
-    t.join(60)
+    # TEMP-CARRY(egpu-load-timeout): 60 -> 180. BMRLNAP (Aug 2026 architecture) instantiates
+    # its kernel graph on the eGPU slower than the Lebowski-era models at identical pkl size
+    # (1.79 GB) and straddles the 60s cliff — loaded green once, timed out on later attempts,
+    # while Lebowski/TTTTFBRLM load reliably. Plausibly what selector-18 code fixes upstream.
+    # DROP at rebase if upstream reworks this load path (this line will conflict).
+    t.join(180)
     if model is None:
       params.put_bool("ChestnutActive", False)
-      raise RuntimeError("chestnut model load failed or timed out (60s)")
+      raise RuntimeError("chestnut model load failed or timed out (180s)")
     params.put_bool("ChestnutActive", True)
   else:
     model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False)
