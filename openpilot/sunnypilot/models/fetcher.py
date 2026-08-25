@@ -139,7 +139,10 @@ class ModelCache:
 class ModelFetcher:
   """Handles fetching and caching of model data from remote source"""
   MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v20.json"
-  MODEL_URL_USBGPU = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_usbgpu_v21.json"
+  # TEMP-CARRY(catalog-v22): v22 ahead of upstream (BMRLNAP + newer chestnut-class models;
+  # verified same schema/generation/runner and identical tinygrad_ref to our pin). DROP
+  # when upstream bumps this URL themselves — the rebase conflicts here by design.
+  MODEL_URL_USBGPU = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_usbgpu_v22.json"
 
   def __init__(self, params: Params):
     self.params = params

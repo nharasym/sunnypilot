@@ -18,7 +18,12 @@ from openpilot.sunnypilot.models.constants import Meta, MetaSimPose, MetaTombRai
 from openpilot.common.hardware.hw import Paths
 
 # SET ME TO THE EXACT JSON VERSION WE SET IN SUNNYPILOT_MODELS REPO
+# TEMP-CARRY(catalog-v22): 18 added ahead of upstream's own v22 bump so the v22 usbgpu
+# catalog's bundles (min_sel 18: BMRLNAP etc.) pass the gate while the regular catalog
+# (still 17) keeps working. DROP this commit when upstream's fetcher moves to v22 —
+# the rebase will conflict here and on MODEL_URL_USBGPU, which is the signal.
 REQUIRED_JSON_VERSION = 17
+CARRIED_JSON_VERSIONS = (REQUIRED_JSON_VERSION, 18)
 
 CUSTOM_MODEL_PATH = Paths.model_root()
 METADATA_PATH = Path(__file__).parent / '../models/supercombo_metadata.pkl'
@@ -51,7 +56,7 @@ def is_bundle_version_compatible(bundle: dict) -> bool:
   required to load the model. This function ensures that:
     the bundle MUST match the `REQUIRED_JSON_VERSION` set here in helpers.
   """
-  return bundle.get("minimumSelectorVersion", 0) == REQUIRED_JSON_VERSION
+  return bundle.get("minimumSelectorVersion", 0) in CARRIED_JSON_VERSIONS  # TEMP-CARRY(catalog-v22)
 
 
 def _bundle_artifacts(bundle: custom.ModelManagerSP.ModelBundle) -> list[tuple[str, str]]:
