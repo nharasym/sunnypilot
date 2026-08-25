@@ -265,7 +265,14 @@ class ModelManagerSP:
       try:
         self.sm.update(0)
         self.available_models = self.model_fetcher.get_available_bundles(self.sm['deviceState'].chestnutPresent)
-        validate_active_bundle(self.params, self.available_models)
+        # HL-FIX(model-selection-persists): only validate the active bundle against the catalog
+        # when the chestnut is actually attached. The dock's 12V lags car start by ~60-90s on
+        # this install, and during that window the fetcher serves the SMALL-model catalog — a
+        # persisted chestnut-class selection matches nothing in it and this 1Hz loop wiped it
+        # ("resetting to default") on every single car start, so selections never survived a
+        # restart. With None only the local-files validity check runs (upstream's designed
+        # no-catalog path); full catalog validation resumes the moment the dock enumerates.
+        validate_active_bundle(self.params, self.available_models if self.sm['deviceState'].chestnutPresent else None)
         self.active_bundle = get_active_bundle(self.params)
 
         if (index_to_download := self.params.get("ModelManager_DownloadIndex")) is not None:
