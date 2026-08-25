@@ -10,12 +10,11 @@ from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.blind_spot_indicators import BlindSpotIndicators
 from openpilot.system.ui.lib.application import gui_app
 
-# HL-FEAT(egpu-icon-persist): match the DMoji's visual weight. The mici DMoji is a 60x60
-# widget at (rect.x+16, rect.y+10) whose glyph renders at 52px (mici/onroad/driver_state.py
-# BASE_SIZE=60, cone_and_person_size=52), so its centerline sits at rect.y+40. Upstream's
-# eGPU icons are 60x44 (crossed 60x52); scaling heights by 52/44 gives the same glyph
-# height as the DMoji.
-_EGPU_SCALE = 52 / 44
+# HL-FEAT(egpu-icon-persist): sized to match the HOME screen's eGPU icon (50x37, home.py
+# IconWidget) per user preference — the DMoji-glyph-height version (71x52) read too large
+# onroad. Vertical centering happens on the DMoji centerline (rect.y+40, see
+# _draw_model_source) and is icon-height-independent.
+_EGPU_SCALE = 37 / 44
 
 
 class _AlwaysVisible:
@@ -39,11 +38,11 @@ class HudRendererSP(HudRenderer):
     super().__init__()
     self.blind_spot_indicators = BlindSpotIndicators()
     self._egpu_alpha_filter = _AlwaysVisible()  # HL-FEAT(egpu-icon-persist)
-    # HL-FEAT(egpu-icon-persist): DMoji-sized textures (see _EGPU_SCALE derivation above);
+    # HL-FEAT(egpu-icon-persist): home-screen-sized textures (see _EGPU_SCALE above);
     # upstream's position math reads icon.width/height so it self-adjusts to these
-    self._txt_egpu = gui_app.texture('icons_mici/egpu.png', round(60 * _EGPU_SCALE), 52)
-    self._txt_egpu_green = gui_app.texture('icons_mici/egpu_green.png', round(60 * _EGPU_SCALE), 52)
-    self._txt_egpu_orange = gui_app.texture('icons_mici/egpu_orange.png', round(60 * _EGPU_SCALE), 52)
+    self._txt_egpu = gui_app.texture('icons_mici/egpu.png', round(60 * _EGPU_SCALE), 37)
+    self._txt_egpu_green = gui_app.texture('icons_mici/egpu_green.png', round(60 * _EGPU_SCALE), 37)
+    self._txt_egpu_orange = gui_app.texture('icons_mici/egpu_orange.png', round(60 * _EGPU_SCALE), 37)
     self._txt_egpu_crossed = gui_app.texture('icons_mici/egpu_crossed.png', round(60 * _EGPU_SCALE), round(52 * _EGPU_SCALE))
 
   def _update_state(self) -> None:
