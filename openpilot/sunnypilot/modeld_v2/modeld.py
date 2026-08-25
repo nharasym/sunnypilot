@@ -48,7 +48,16 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
-BIG_MODEL_TIMEOUT = 60
+# TEMP-CARRY(egpu-load-timeout): upstream 60 -> 180. BMRLNAP (Aug 2026 architecture)
+# instantiates its kernel graph on the eGPU slower than the Lebowski-era models at identical
+# pkl size (1.79 GB) and straddled the old 60s cliff; it has only ever been observed loading
+# WITH this raised timeout in place, and its true load time has never been measured.
+# The tradeoff changed with the big->small fallback (#1974): a timeout is no longer a
+# crash-loop, it is a silent demotion to the small model, and the small model is not loaded
+# until the big one gives up — so this 180 also delays any fallback to ~3 min.
+# DROP THIS (back to 60) once a BMRLNAP boot's "models loaded in X.Xs" swaglog line shows it
+# loads comfortably under 60s. Measure before deciding; do not carry this indefinitely.
+BIG_MODEL_TIMEOUT = 180
 
 
 def _pkl_exists(path):
