@@ -36,6 +36,15 @@ class HudRendererSP(HudRenderer):
     super()._update_state()
     self.blind_spot_indicators.update()
 
+  def _draw_model_source(self, rect: rl.Rectangle) -> None:
+    # HL-FEAT(egpu-icon-persist): relocate the now-permanent eGPU icon to the TOP of the view
+    # (clear of the wheel/torque-bar cluster). Upstream bottom-anchors it:
+    #   pos.y = rect.y + rect.height - 14 - (wheel_h + icon_h) / 2  ≈  rect.y + rect.height - 61
+    # and uses rect for nothing else in the method (verified at mici/onroad/hud_renderer.py:199-232),
+    # so a height-71 stand-in rect lands the icon at rect.y + 10 while keeping upstream's state
+    # machine, textures, and right-edge x-anchor byte-for-byte intact.
+    super()._draw_model_source(rl.Rectangle(rect.x, rect.y, rect.width, 71))
+
   def _render(self, rect: rl.Rectangle) -> None:
     super()._render(rect)
     self.blind_spot_indicators.render(rect)
