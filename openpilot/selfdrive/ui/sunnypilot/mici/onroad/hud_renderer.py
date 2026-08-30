@@ -32,7 +32,7 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
 # thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
 _TEMP_FONT_SIZE = 26
-_TEMP_LINE_H = 28  # line advance; the scaled 26px box is ~30px tall, digits ink ~22px
+_TEMP_LINE_H = 28  # line advance; the scaled 26px box is ~30px tall, digits ink ~19px
 _GPU_AMBER_C = 85
 _GPU_RED_C = 105
 
@@ -113,12 +113,13 @@ class HudRendererSP(HudRenderer):
     self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
 
     # hottest core, colored by the device's own verdict (see the zone note at the top).
-    # Skipped while the right blind-spot indicator shows (same test it renders on; getattr so
-    # an upstream rename degrades to "no gate", not a crash).
+    # Skipped while the right blind-spot indicator shows (same test it renders on, toggle
+    # included — its filter rises with carState even when the toggle is off and nothing is
+    # drawn; getattr so an upstream rename degrades to "no gate", not a crash).
     if not ui_state.sm.alive['deviceState']:
       return
     right_bsm = getattr(self.blind_spot_indicators, "_blind_spot_right_alpha_filter", None)
-    if right_bsm is not None and right_bsm.x > 0.01:
+    if ui_state.blindspot and right_bsm is not None and right_bsm.x > 0.01:
       return
     cpu_temp = max(ui_state.sm['deviceState'].cpuTempC, default=0.0)
     if cpu_temp > 0:
