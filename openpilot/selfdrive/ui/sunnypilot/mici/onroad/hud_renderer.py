@@ -6,21 +6,34 @@ See the LICENSE.md file in the root directory for more details.
 """
 import pyray as rl
 
+from openpilot.cereal import log
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.blind_spot_indicators import BlindSpotIndicators
 from openpilot.selfdrive.ui.ui_state import ChestnutState, ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 
-# HL-FEAT(egpu-temp): GPU hotspot temp readout under the onroad chestnut icon. The icon's
+ThermalStatus = log.DeviceState.ThermalStatus
+
+# HL-FEAT(egpu-temp): GPU + CPU temp readout under the onroad chestnut icon. The icon's
 # color keeps meaning STATE (green=active, orange=uncompiled/failed, white=loading) — the
 # thermal zone is encoded in the temp TEXT color instead, so orange never becomes ambiguous
-# ("hot" vs "failed"). Zones for an RDNA hotspot (throttle onset ~110C): amber from 85,
-# red from 105. modeld publishes chestnutState at 10Hz but refreshes the SMU metrics only
-# every ~10s, so the number moving slowly is expected.
+# ("hot" vs "failed").
+# Both temps share ONE right-aligned line (CPU left of GPU, GPU under the icon it belongs
+# to) rather than stacking: the right blind-spot indicator occupies this corner from
+# rect.y+100 down (blind_spot_indicators.py BLIND_SPOT_Y_OFFSET) and renders after the HUD,
+# so a second line would be drawn over whenever it fires.
+# Zones — GPU: fixed thresholds, since nothing on the device judges the card's thermals
+# (RDNA hotspot, throttles ~110C). CPU: no thresholds of our own — color straight off
+# deviceState.thermalStatus, the verdict hardwared already publishes, so the number goes
+# amber/red exactly when the device itself begins throttling and engagement gets gated.
+# (Do NOT re-derive these from hardwared.THERMAL_BANDS: those min_temp values are the
+# step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
+# thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
 _TEMP_FONT_SIZE = 28
-_TEMP_AMBER_C = 85
-_TEMP_RED_C = 105
+_TEMP_GAP = 16
+_GPU_AMBER_C = 85
+_GPU_RED_C = 105
 
 # HL-FEAT(egpu-icon-persist): sized to match the HOME screen's eGPU icon per user
 # preference — the DMoji-glyph-height version (52px tall) read too large onroad, 37px
@@ -78,33 +91,50 @@ class HudRendererSP(HudRenderer):
     #   H = 40 - icon_h/2 + 14 + (50 + icon_h)/2 = 40 + 14 + 25 = 79
     # (icon_h cancels, so the math is independent of which state icon is showing.)
     super()._draw_model_source(rl.Rectangle(rect.x, rect.y, rect.width, 79))
-    self._draw_chestnut_temp(rect)
+    self._draw_temps(rect)
 
-  def _draw_chestnut_temp(self, rect: rl.Rectangle) -> None:
-    # HL-FEAT(egpu-temp): hotspot temp centered under the icon. Metrics only flow while the
-    # big model is actually running on the card (modeld gates the SMU read on that), so gate
-    # on ACTIVE + a live publisher + a real reading; tempC is 0 until the first SMU refresh.
+  def _draw_temps(self, rect: rl.Rectangle) -> None:
+    # HL-FEAT(egpu-temp): GPU metrics only flow while the big model is actually running on
+    # the card (modeld gates the SMU read on that), so gate on ACTIVE + a live publisher +
+    # a real reading; tempC is 0 until the first SMU refresh. CPU rides the same gate so the
+    # corner stays empty with no dock — deliberate, since the readout belongs to the icon.
     if ui_state.chestnut_state != ChestnutState.ACTIVE or not ui_state.sm.alive['chestnutState']:
       return
-    temp = ui_state.sm['chestnutState'].tempC
-    if temp <= 0:
+    gpu_temp = ui_state.sm['chestnutState'].tempC
+    if gpu_temp <= 0:
       return
 
-    if temp >= _TEMP_RED_C:
-      color = rl.Color(255, 66, 66, 230)
-    elif temp >= _TEMP_AMBER_C:
-      color = rl.Color(255, 175, 3, 230)
-    else:
-      color = rl.Color(255, 255, 255, 230)
+    # icon bottom edge is its centerline (rect.y+40) plus half of the 37px display height;
+    # right-aligned on the icon's own right edge (upstream anchors it at rect right - 10)
+    y = rect.y + 40 + 37 / 2 + 6
+    gpu_color = self._temp_color(gpu_temp >= _GPU_AMBER_C, gpu_temp >= _GPU_RED_C)
+    left = self._draw_temp(rect.x + rect.width - 10, y, "GPU", gpu_temp, gpu_color)
 
-    text = f"{round(temp)}°"
-    size = measure_text_cached(self._font_semi_bold, text, _TEMP_FONT_SIZE)
-    # icon center x per upstream's anchor (right edge - 10 - icon_w/2); icon bottom edge is
-    # its centerline y+40 plus half of the 37px display height — text sits just below
-    icon = self._txt_chestnut_green
-    center_x = rect.x + rect.width - 10 - icon.width / 2
-    rl.draw_text_ex(self._font_semi_bold, text,
-                    rl.Vector2(center_x - size.x / 2, rect.y + 40 + 37 / 2 + 6), _TEMP_FONT_SIZE, 0, color)
+    # hottest core, colored by the device's own verdict (see the zone note at the top)
+    if not ui_state.sm.alive['deviceState']:
+      return
+    cpu_temp = max(ui_state.sm['deviceState'].cpuTempC, default=0.0)
+    if cpu_temp > 0:
+      status = ui_state.sm['deviceState'].thermalStatus
+      cpu_color = self._temp_color(status == ThermalStatus.overheated, status == ThermalStatus.critical)
+      self._draw_temp(left - _TEMP_GAP, y, "CPU", cpu_temp, cpu_color)
+
+  def _temp_color(self, hot: bool, critical: bool) -> rl.Color:
+    if critical:
+      return rl.Color(255, 66, 66, 230)
+    return rl.Color(255, 175, 3, 230) if hot else rl.Color(255, 255, 255, 230)
+
+  def _draw_temp(self, right_x: float, y: float, label: str, temp: float, color: rl.Color) -> float:
+    """HL-FEAT(egpu-temp): draw '<label> NN°' right-aligned at right_x; returns its left edge."""
+    label_text, value_text = f"{label} ", f"{round(temp)}°"
+    label_w = measure_text_cached(self._font_semi_bold, label_text, _TEMP_FONT_SIZE).x
+    value_w = measure_text_cached(self._font_semi_bold, value_text, _TEMP_FONT_SIZE).x
+    x = right_x - (label_w + value_w)
+    # label stays dim so the eye lands on the numbers; only the value carries the thermal color
+    rl.draw_text_ex(self._font_semi_bold, label_text, rl.Vector2(x, y), _TEMP_FONT_SIZE, 0,
+                    rl.Color(255, 255, 255, 190))
+    rl.draw_text_ex(self._font_semi_bold, value_text, rl.Vector2(x + label_w, y), _TEMP_FONT_SIZE, 0, color)
+    return x
 
   def _render(self, rect: rl.Rectangle) -> None:
     super()._render(rect)
