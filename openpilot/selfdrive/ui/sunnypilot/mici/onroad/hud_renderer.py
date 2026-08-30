@@ -19,10 +19,11 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # color keeps meaning STATE (green=active, orange=uncompiled/failed, white=loading) — the
 # thermal zone is encoded in the temp TEXT color instead, so orange never becomes ambiguous
 # ("hot" vs "failed").
-# Both temps share ONE right-aligned line (CPU left of GPU, GPU under the icon it belongs
-# to) rather than stacking: the right blind-spot indicator occupies this corner from
-# rect.y+100 down (blind_spot_indicators.py BLIND_SPOT_Y_OFFSET) and renders after the HUD,
-# so a second line would be drawn over whenever it fires.
+# Layout (user-picked): a narrow right-aligned column under the icon — GPU first, on the
+# icon it belongs to, CPU beneath. The right blind-spot indicator occupies this corner from
+# rect.y+100 down (blind_spot_indicators.py BLIND_SPOT_Y_OFFSET) and renders AFTER the HUD,
+# and the second line's ink reaches past y+100, so the CPU line is skipped while that
+# indicator is showing — a whole number missing beats a half-covered one.
 # Zones — GPU: fixed thresholds, since nothing on the device judges the card's thermals
 # (RDNA hotspot, throttles ~110C). CPU: no thresholds of our own — color straight off
 # deviceState.thermalStatus, the verdict hardwared already publishes, so the number goes
@@ -30,8 +31,8 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # (Do NOT re-derive these from hardwared.THERMAL_BANDS: those min_temp values are the
 # step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
 # thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
-_TEMP_FONT_SIZE = 28
-_TEMP_GAP = 16
+_TEMP_FONT_SIZE = 26
+_TEMP_LINE_H = 28  # line advance; the scaled 26px box is ~30px tall, digits ink ~22px
 _GPU_AMBER_C = 85
 _GPU_RED_C = 105
 
@@ -105,19 +106,25 @@ class HudRendererSP(HudRenderer):
       return
 
     # icon bottom edge is its centerline (rect.y+40) plus half of the 37px display height;
-    # right-aligned on the icon's own right edge (upstream anchors it at rect right - 10)
-    y = rect.y + 40 + 37 / 2 + 6
+    # both lines right-aligned on the icon's own right edge (upstream anchors it at right - 10)
+    right = rect.x + rect.width - 10
+    y = rect.y + 40 + 37 / 2 + 4
     gpu_color = self._temp_color(gpu_temp >= _GPU_AMBER_C, gpu_temp >= _GPU_RED_C)
-    left = self._draw_temp(rect.x + rect.width - 10, y, "GPU", gpu_temp, gpu_color)
+    self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
 
-    # hottest core, colored by the device's own verdict (see the zone note at the top)
+    # hottest core, colored by the device's own verdict (see the zone note at the top).
+    # Skipped while the right blind-spot indicator shows (same test it renders on; getattr so
+    # an upstream rename degrades to "no gate", not a crash).
     if not ui_state.sm.alive['deviceState']:
+      return
+    right_bsm = getattr(self.blind_spot_indicators, "_blind_spot_right_alpha_filter", None)
+    if right_bsm is not None and right_bsm.x > 0.01:
       return
     cpu_temp = max(ui_state.sm['deviceState'].cpuTempC, default=0.0)
     if cpu_temp > 0:
       status = ui_state.sm['deviceState'].thermalStatus
       cpu_color = self._temp_color(status == ThermalStatus.overheated, status == ThermalStatus.critical)
-      self._draw_temp(left - _TEMP_GAP, y, "CPU", cpu_temp, cpu_color)
+      self._draw_temp(right, y + _TEMP_LINE_H, "CPU", cpu_temp, cpu_color)
 
   def _temp_color(self, hot: bool, critical: bool) -> rl.Color:
     if critical:
