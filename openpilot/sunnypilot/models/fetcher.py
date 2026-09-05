@@ -139,7 +139,11 @@ class ModelCache:
 class ModelFetcher:
   """Handles fetching and caching of model data from remote source"""
   MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v22.json"
-  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v24.json"
+  # TEMP-CARRY(catalog-v25): upstream still points at chestnut_v24; v25 adds the Cinque Terre
+  # model (Sept 04) and is otherwise identical — same 11 bundles at the same refs, same
+  # tinygrad_ref (e837e367 = our pin), every bundle at selector 19 = REQUIRED_JSON_VERSION.
+  # DROP THIS the moment upstream bumps the URL (this line will conflict by design).
+  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v25.json"
 
   MODEL_SOURCES = {
     "qcom": (MODEL_URL, ""),
