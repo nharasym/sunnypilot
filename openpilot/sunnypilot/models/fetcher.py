@@ -139,7 +139,14 @@ class ModelCache:
 class ModelFetcher:
   """Handles fetching and caching of model data from remote source"""
   MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v22.json"
-  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v25.json"
+  # TEMP-CARRY(chestnut-catalog-v26): upstream still points at v25; sunnypilot published
+  # v26 on 2026-09-19 carrying "Cinque Terre V3 Model (September 17, 2026)". v26 is a
+  # strict superset of v25 (no bundle removed, V3 added), every bundle still declares
+  # minimum_selector_version 19 == REQUIRED_JSON_VERSION, and its tinygrad_ref is
+  # unchanged from v25, so this introduces no new pkl/pin skew.
+  # DROP THIS the moment upstream bumps the constant itself (they did exactly this for
+  # v24 -> v25 in #1993, which superseded the same carry at r13).
+  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v26.json"
 
   MODEL_SOURCES = {
     "qcom": (MODEL_URL, ""),
