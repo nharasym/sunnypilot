@@ -11,7 +11,7 @@ import pyray as rl
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -95,7 +95,13 @@ class ModelsLayoutMici(NavScroller):
     self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
     self._cache_size_time = 0.0
 
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn]
+    # HL-FEAT(lane-policy): EXPERIMENTAL lane-midpoint curvature blend, default OFF. Lives on
+    # the models panel because it changes how the model steers, not how the device behaves.
+    # No restart callback: modeld re-reads the param every ~3 s, so it takes effect live.
+    self.lane_policy_toggle = BigParamControl(tr("lane policy (experimental)"), "LanePolicyControl")
+
+    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
+                       self.lane_policy_toggle]  # HL-FEAT(lane-policy)
     self._scroller.add_widgets(self.main_items)
 
   @property
@@ -198,6 +204,14 @@ class ModelsLayoutMici(NavScroller):
       btn.set_click_callback(lambda b=bundle: self._select_model(b))
       btns.append(btn)
     self._push_selection_view(btns)
+
+  def show_event(self):
+    # HL-FEAT(lane-policy): BigParamControl samples the param once at construction, and this
+    # panel is built once and kept. Re-sync on show so a param set outside the UI (ssh, a
+    # future sunnylink toggle) isn't displayed stale -- otherwise tapping the row to "turn it
+    # on" would actually turn it off.
+    super().show_event()
+    self.lane_policy_toggle.refresh()
 
   def hide_event(self):
     super().hide_event()
