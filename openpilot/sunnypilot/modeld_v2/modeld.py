@@ -43,6 +43,7 @@ from openpilot.selfdrive.modeld.compile_modeld import (
   make_input_queues as make_stock_input_queues,
 )
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
+from openpilot.sunnypilot.modeld_v2.lane_policy_helper import LanePolicyHelper  # HL-FEAT(lane-policy)
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -108,6 +109,7 @@ class ModelState(ModelStateBase):
     self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
+    self.lane_policy = LanePolicyHelper()  # HL-FEAT(lane-policy)
     self.PLANPLUS_CONTROL: float = 1.0
     self.chestnut = chestnut
 
@@ -304,6 +306,10 @@ class ModelState(ModelStateBase):
       desired_accel = model_output['action'][0, 1]
       desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
 
+    # HL-FEAT(lane-policy): override with a lane-midpoint curvature when every gate passes.
+    # Returns e2e exactly when disabled or any gate fails, so stock behaviour is untouched.
+    desired_curvature = self.lane_policy.apply(model_output, desired_curvature, v_ego)
+
     stop = v_ego < 0.3 and desired_accel < 0.1
     desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
 
@@ -389,6 +395,7 @@ def main(demo=False):
   # messaging
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
+  lane_policy_enabled = False  # HL-FEAT(lane-policy): default OFF until the first param read
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState", "carControl", "lateralDelay"])
 
   publish_state = PublishState()
@@ -464,7 +471,14 @@ def main(demo=False):
     if sm.frame % 60 == 0:
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
+      # HL-FEAT(lane-policy): opt-in, default OFF. Only the PARAM belongs on this 3 s
+      # cadence — the blinker is sampled every frame below.
+      lane_policy_enabled = params.get_bool("LanePolicyControl")
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
+    # HL-FEAT(lane-policy): blinker is a safety release — sample it EVERY frame, not on the
+    # 3 s param cadence, or a lane change gets fought for up to 3 s before the blend releases.
+    model.lane_policy.set_state(enabled=lane_policy_enabled,
+                                blinkers_active=bool(sm["carState"].leftBlinker or sm["carState"].rightBlinker))
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
