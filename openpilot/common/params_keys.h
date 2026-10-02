@@ -267,6 +267,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
     // HL-FEAT(lane-policy): EXPERIMENTAL lane-midpoint curvature blend, default OFF
     {"LanePolicyControl", {PERSISTENT | BACKUP, BOOL, "0"}},
+    // HL-FEAT(stock-hud-lat-off): Toyota cluster mirrors stock-LTA-off while lateral is off; default ON
+    {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
 
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},
