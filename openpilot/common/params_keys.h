@@ -269,6 +269,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LanePolicyControl", {PERSISTENT | BACKUP, BOOL, "0"}},
     // HL-FEAT(stock-hud-lat-off): Toyota cluster mirrors stock-LTA-off while lateral is off; default ON
     {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
+    // HL-FEAT(cruise-accel-scale): cruise-candidate accel ceiling + ramp dial, acc mode only (brake floor unscaled); 1.0 == upstream
+    {"CruiseAccelScale", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
 
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},
