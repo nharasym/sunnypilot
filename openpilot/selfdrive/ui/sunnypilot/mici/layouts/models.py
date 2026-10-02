@@ -11,7 +11,7 @@ import pyray as rl
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigMultiToggle, BigParamControl
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -70,6 +70,36 @@ class CurrentModelInfo(Widget):
     self.info_text.set_position(self._rect.x + 20, self._rect.y + 161 - 25)
     self.info_text.render()
 
+CRUISE_ACCEL_STEPS = [("1.0", 1.0), ("0.9", 0.9), ("0.8", 0.8), ("0.7", 0.7), ("0.6", 0.6), ("0.5", 0.5)]
+CRUISE_ACCEL_PARAM = "CruiseAccelScale"
+
+
+class CruiseAccelDial(BigMultiToggle):
+  """HL-FEAT(cruise-accel-scale): tap to step the cruise accel/ramp scale. 1.0 is stock."""
+
+  def __init__(self):
+    super().__init__(tr("cruise accel (1.0 = stock)"), [lbl for lbl, _ in CRUISE_ACCEL_STEPS],
+                     select_callback=self._on_select)
+    self.refresh()
+
+  @staticmethod
+  def _nearest_label(value: float) -> str:
+    return min(CRUISE_ACCEL_STEPS, key=lambda s: abs(s[1] - value))[0]
+
+  def refresh(self):
+    # modeld-style: a value set outside the UI (ssh) must display, not get clobbered on tap
+    try:
+      v = float(ui_state.params.get(CRUISE_ACCEL_PARAM, return_default=True))
+    except (TypeError, ValueError):
+      v = 1.0
+    if v != v or v <= 0.0:
+      v = 1.0
+    self.set_value(self._nearest_label(v))
+
+  def _on_select(self, label: str):
+    ui_state.params.put(CRUISE_ACCEL_PARAM, dict(CRUISE_ACCEL_STEPS)[label])
+
+
 class ModelsLayoutMici(NavScroller):
   def __init__(self):
     super().__init__()
@@ -99,9 +129,13 @@ class ModelsLayoutMici(NavScroller):
     # the models panel because it changes how the model steers, not how the device behaves.
     # No restart callback: modeld re-reads the param every ~3 s, so it takes effect live.
     self.lane_policy_toggle = BigParamControl(tr("lane policy (experimental)"), "LanePolicyControl")
+    # HL-FEAT(cruise-accel-scale): FLOAT param, so not a BigParamControl (bool) and not a
+    # BigMultiParamToggle (stores an option INDEX into the param). Plain BigMultiToggle cycling
+    # labelled steps, with the float written explicitly. Mirrors the helper's 0.5..1.0 clamp.
+    self.cruise_accel_dial = CruiseAccelDial()
 
     self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
-                       self.lane_policy_toggle]  # HL-FEAT(lane-policy)
+                       self.lane_policy_toggle, self.cruise_accel_dial]  # HL-FEAT(lane-policy, cruise-accel-scale)
     self._scroller.add_widgets(self.main_items)
 
   @property
@@ -212,6 +246,7 @@ class ModelsLayoutMici(NavScroller):
     # on" would actually turn it off.
     super().show_event()
     self.lane_policy_toggle.refresh()
+    self.cruise_accel_dial.refresh()  # HL-FEAT(cruise-accel-scale): same stale-display reason
 
   def hide_event(self):
     super().hide_event()
