@@ -38,6 +38,32 @@ def speed_limit_adjust_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.
     Priority.LOW, VisualAlert.none, AudibleAlert.none, 4.)
 
 
+def _loaded_models_text() -> str:
+  """HL-FEAT(ready-to-drive): 'Big Model V2 / Small Model' from the active bundles, read when
+  the alert fires (not at import) so a model switch shows the new name. Never raises: this
+  runs inside selfdrived's alert pass."""
+  from openpilot.sunnypilot.models.helpers import get_active_bundle
+  names = []
+  for chestnut in (True, False):
+    try:
+      b = get_active_bundle(chestnut=chestnut)
+      if b is not None and b.displayName:
+        names.append(str(b.displayName))
+    except Exception:
+      pass
+  return " / ".join(names)
+
+
+def big_model_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+  # HL-FEAT(ready-to-drive): "Ready To Drive" with the loaded models underneath, replacing the
+  # bare "Big Model Ready". mid so the second (smaller) line renders; same chime and 2 s hold.
+  return Alert(
+    "Ready To Drive",
+    _loaded_models_text(),
+    AlertStatus.normal, AlertSize.mid,
+    Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.)
+
+
 def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   speed_conv = CV.MS_TO_KPH if metric else CV.MS_TO_MPH
   v_cruise_cluster = CS.vCruiseCluster
@@ -254,11 +280,7 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
   },
 
   EventNameSP.bigModelReady: {
-    ET.PERMANENT: Alert(
-      "Big Model Ready",
-      "",
-      AlertStatus.normal, AlertSize.small,
-      Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.),
+    ET.PERMANENT: big_model_ready_alert,  # HL-FEAT(ready-to-drive)
   },
 
   # HL-FEAT(bsm-approaching): driver signaled toward a side where the factory BSM radar
