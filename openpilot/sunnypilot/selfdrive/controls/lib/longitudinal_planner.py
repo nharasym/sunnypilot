@@ -32,6 +32,7 @@ class LongitudinalPlannerSP:
     self.sla = SpeedLimitAssist(CP, CP_SP)
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
+    self.source_is_scc = False  # HL-FEAT(cruise-accel-scale)
     self.e2e_alerts_helper = E2EAlertsHelper()
     self.cruise_accel_scale = CruiseAccelScale()  # HL-FEAT(cruise-accel-scale): default 1.0 == upstream
 
@@ -72,6 +73,12 @@ class LongitudinalPlannerSP:
     }
 
     self.source = min(targets, key=lambda k: targets[k][0])
+    # HL-FEAT(cruise-accel-scale): resolved HERE, where THIS LongitudinalPlanSource (the capnp
+    # enum from custom) is in scope. The stock planner imports a different enum of the same
+    # name from long_mpc (lead0/lead1/cruise/e2e) that has no scc members; comparing against it
+    # there raised AttributeError on every update() and crash-looped plannerd in r20. The stock
+    # planner reads this bool and never names a source member.
+    self.source_is_scc = self.source in (LongitudinalPlanSource.sccVision, LongitudinalPlanSource.sccMap)
     self.output_v_target, self.output_a_target = targets[self.source]
     return self.output_v_target, self.output_a_target
 
