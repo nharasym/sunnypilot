@@ -127,6 +127,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
     "ToyotaEnforceStockLongitudinal",
     "ToyotaStopAndGoHack",
     "ToyotaTSS2Smooth",
+    "ToyotaStockHudLatOff",  # HL-FEAT(stock-hud-lat-off)
   ])
 
   return [{k: params.get(k, return_default=True)} for k in keys]
