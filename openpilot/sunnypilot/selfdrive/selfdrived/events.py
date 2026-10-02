@@ -56,12 +56,13 @@ def _loaded_models_text() -> str:
 
 def big_model_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   # HL-FEAT(ready-to-drive): "Ready To Drive" with the loaded models underneath, replacing the
-  # bare "Big Model Ready". mid so the second (smaller) line renders; same chime and 2 s hold.
+  # bare "Big Model Ready". mid so the second (smaller) line renders; same chime. Held 5 s
+  # (was 2) so the model names are actually readable -- road-test request 2026-10-02.
   return Alert(
     "Ready To Drive",
     _loaded_models_text(),
     AlertStatus.normal, AlertSize.mid,
-    Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.)
+    Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 5.)
 
 
 def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
