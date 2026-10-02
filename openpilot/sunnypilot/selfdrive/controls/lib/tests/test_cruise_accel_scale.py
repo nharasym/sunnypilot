@@ -131,10 +131,46 @@ class TestInPlanner:
     assert ref == self._run(planner, 1.0, False)
 
   def test_no_throttle_coast_cap_is_not_loosened_by_the_scale(self, planner):
-    # with throttle disallowed at speed the ceiling is the (negative) coast accel; a scale must
-    # never move it toward zero. Both scales must yield the identical first step.
-    coast = planner.get_coast_accel(0.0)      # flat ground, about -0.3
+    # With throttle disallowed at speed the CEILING is the (negative) coast accel. The scale must
+    # never move that ceiling toward zero -- the r20 review found a version that did, permitting
+    # MORE throttle where the model predicted a lift. What IS allowed to differ is the ramp:
+    # the scaled candidate approaches the same -0.3 more slowly (j_cruise is scaled), which is
+    # the accepted "release ramps slower" tradeoff. Measured on-device 2026-10-02: first step
+    # -0.06 (1.0) vs -0.042 (0.7), both converging to -0.3. So assert the ceiling and the
+    # steady state, not the first step.
+    coast = planner.get_coast_accel(0.0)      # flat ground, -0.3
     assert coast < 0
-    a1 = self._run(planner, 1.0, False, v_ego=10.0, allow_throttle=False, accel_coast=coast)
-    a7 = self._run(planner, 0.7, False, v_ego=10.0, allow_throttle=False, accel_coast=coast)
-    assert a7 == a1
+    def converge(scale, n=80):
+      s = CruiseAccelScale(_P(str(scale)))
+      a = 0.0
+      path = []
+      for _ in range(n):
+        a = planner.get_cruise_accel(False, 30.0, 10.0, a, 0.0, _CP(), DT_MDL, coast, False, cruise_scale=s)
+        path.append(a)
+      return path
+    p1, p7 = converge(1.0), converge(0.7)
+    assert p1[-1] == pytest.approx(coast) and p7[-1] == pytest.approx(coast), "ceiling must be the unscaled coast accel"
+    assert all(a <= 0.0 for a in p7), "scaled path must never command throttle when the cap is negative"
+    assert min(p7) >= coast - 1e-9, "scaled path must never undershoot the coast cap either"
+
+
+class TestSccBypassEnumIsTheRightOne:
+  """r20 regression. Two enums share the name LongitudinalPlanSource: the capnp one the SP
+  planner uses (has sccVision/sccMap) and long_mpc's (lead0/lead1/cruise/e2e, no scc members).
+  The stock planner imports the latter, so it must never name an scc member -- it reads the
+  bool the SP planner resolves. These run on the Mac; the on-device planner-gate tests are
+  the real gate (see ~/.claude/skills/sunnypilot-port/ondevice_planner_tests.sh)."""
+
+  def test_scc_members_exist_on_the_capnp_enum_the_sp_planner_resolves_against(self):
+    from openpilot.cereal import custom
+    E = custom.LongitudinalPlanSP.LongitudinalPlanSource
+    for m in ("sccVision", "sccMap", "cruise"):
+      assert hasattr(E, m), m
+
+  def test_stock_planner_never_names_an_scc_source_member(self):
+    import os
+    import openpilot
+    p = os.path.join(os.path.dirname(openpilot.__file__), "selfdrive", "controls", "lib", "longitudinal_planner.py")
+    src = open(p).read()
+    assert "LongitudinalPlanSource.scc" not in src, "stock planner must read SP's source_is_scc bool, not enum members"
+    assert "self.source_is_scc" in src
