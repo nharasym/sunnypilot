@@ -91,13 +91,15 @@ class LanePolicyHelper:
   def _lane_target(self, model_output: dict[str, np.ndarray], e2e_curvature: float, v_ego: float):
     """Returns (target_weight, lane_curvature | None, mode). Never raises."""
     # Lane-line axes are [batch, lane, distance, coordinate]; the inner lines are 1 and 2.
-    # Do NOT assume which of the two is left. Measured over 6876 high-confidence frames of
-    # route 000000d5 (2026-09-28, Cinque V2): lane_lines[0,1] - lane_lines[0,2] is negative
-    # in 100% of frames, median magnitude 3.45 m. +y is LEFT here (corr(position.y@30m,
-    # desiredCurvature) = +0.911, 94.1% sign agreement), so index 1 is the RIGHT line --
-    # the opposite of gm1500's assumption AND of fill_model_msg's own leftY/rightY naming.
-    # Only the WIDTH is affected: the midpoint 0.5*(a+b) is order-independent, so the
-    # offset, heading and geometry terms below all keep the correct sign.
+    # Frame: the model/device frame is x forward, +y RIGHT, z down (common/transformations/
+    # camera.py), and openpilot's curvature is positive to the RIGHT (controlsd negates
+    # VM.calc_curvature). Measured over 6876 high-confidence frames of route 000000d5
+    # (2026-09-28, Cinque V2): lane_lines[0,1] - lane_lines[0,2] is negative in 100% of frames
+    # (median magnitude 3.45 m) and corr(position.y@30m, desiredCurvature) = +0.911, so index 1
+    # is the LEFT line and index 2 the RIGHT, as fill_model_msg's leftY/rightY say. (A 2026-10-01
+    # note here claimed the opposite from the same numbers by assuming +y LEFT; corrected
+    # 2026-10-02.) Nothing below depends on the order: the midpoint 0.5*(a+b) is symmetric and
+    # the width gate uses the magnitude; the offset term's sign is the measured y<->curvature one.
     inner_a = model_output['lane_lines'][0, 1, :, 0].astype(np.float64)
     inner_b = model_output['lane_lines'][0, 2, :, 0].astype(np.float64)
     # lane_lines_prob is interleaved; fill_model_msg.py:130 de-interleaves with [0, 1::2]

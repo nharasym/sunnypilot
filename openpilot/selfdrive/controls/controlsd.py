@@ -23,6 +23,7 @@ from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+from openpilot.sunnypilot.selfdrive.controls.lib.hud_lane_visibility import HudLaneVisibility
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -69,6 +70,7 @@ class Controls(ControlsExt):
       self.LaC = LatControlTorque(self.CP, self.CP_SP, self.CI, DT_CTRL)
 
     self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
+    self.hud_lane_visibility = HudLaneVisibility()  # HL-FEAT(stock-hud-lines)
 
   def update(self):
     self.sm.update(15)
@@ -189,8 +191,15 @@ class Controls(ControlsExt):
     hudControl.leadDistanceBars = self.sm['selfdriveState'].personality.raw + 1
     hudControl.visualAlert = self.sm['selfdriveState'].alertHudVisual
 
-    hudControl.rightLaneVisible = True
-    hudControl.leftLaneVisible = True
+    # HL-FEAT(stock-hud-lines): solid only while the model sees the marker, like the car's camera;
+    # upstream hardcodes True here (#22693). Fork-wide (every brand's HUD sees it); the Toyota
+    # carcontroller ignores it with ToyotaStockHudLatOff off. Hysteresis + hold: hud_lane_visibility.py.
+    if self.sm.updated['modelV2']:
+      self.hud_lane_visibility.update(self.sm['modelV2'].laneLineProbs, self.sm.logMonoTime['modelV2'] * 1e-9)
+    elif not self.sm.alive['modelV2']:
+      self.hud_lane_visibility.reset()  # no perception running: never claim the markers are seen
+    hudControl.rightLaneVisible = self.hud_lane_visibility.right
+    hudControl.leftLaneVisible = self.hud_lane_visibility.left
     if self.sm.valid['driverAssistance']:
       hudControl.leftLaneDepart = self.sm['driverAssistance'].leftLaneDeparture
       hudControl.rightLaneDepart = self.sm['driverAssistance'].rightLaneDeparture
