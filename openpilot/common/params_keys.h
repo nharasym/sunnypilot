@@ -274,6 +274,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LaneTurnValue", {PERSISTENT | BACKUP, FLOAT, "19.0"}},
     {"Blendful", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    // HL-FEAT(stock-hud-lat-off): Toyota cluster mirrors stock-LTA-off while lateral is off; default ON
+    {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
 
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},
