@@ -32,7 +32,7 @@ class TestReadyToDriveAlert:
     assert a.alert_text_1 == "Ready To Drive"
     assert a.alert_text_2 == "Cinque V2 / Small X"
     assert a.alert_size == AlertSize.mid, "mid is the size that renders the second line"
-    assert a.duration == 200, "Alert stores seconds as 100 Hz frames; 2 s hold like the original"
+    assert a.duration == 500, "Alert stores seconds as 100 Hz frames; 5 s so the model names are readable"
 
   def test_only_big_model_known(self):
     with mock.patch("openpilot.sunnypilot.models.helpers.get_active_bundle",
