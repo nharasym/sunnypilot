@@ -90,10 +90,16 @@ class LanePolicyHelper:
 
   def _lane_target(self, model_output: dict[str, np.ndarray], e2e_curvature: float, v_ego: float):
     """Returns (target_weight, lane_curvature | None, mode). Never raises."""
-    # Lane-line axes are [batch, lane, distance, coordinate]. The inner lines are lane 1
-    # (left) and lane 2 (right); fill_model_msg.py uses the same indices.
-    left_y = model_output['lane_lines'][0, 1, :, 0].astype(np.float64)
-    right_y = model_output['lane_lines'][0, 2, :, 0].astype(np.float64)
+    # Lane-line axes are [batch, lane, distance, coordinate]; the inner lines are 1 and 2.
+    # Do NOT assume which of the two is left. Measured over 6876 high-confidence frames of
+    # route 000000d5 (2026-09-28, Cinque V2): lane_lines[0,1] - lane_lines[0,2] is negative
+    # in 100% of frames, median magnitude 3.45 m. +y is LEFT here (corr(position.y@30m,
+    # desiredCurvature) = +0.911, 94.1% sign agreement), so index 1 is the RIGHT line --
+    # the opposite of gm1500's assumption AND of fill_model_msg's own leftY/rightY naming.
+    # Only the WIDTH is affected: the midpoint 0.5*(a+b) is order-independent, so the
+    # offset, heading and geometry terms below all keep the correct sign.
+    inner_a = model_output['lane_lines'][0, 1, :, 0].astype(np.float64)
+    inner_b = model_output['lane_lines'][0, 2, :, 0].astype(np.float64)
     # lane_lines_prob is interleaved; fill_model_msg.py:130 de-interleaves with [0, 1::2]
     # before publishing modelV2.laneLineProbs, so the inner lines land at 1 and 2 only
     # AFTER that slice (raw indices 3 and 5). Use the identical slice so our thresholds
@@ -110,11 +116,11 @@ class LanePolicyHelper:
     x = np.asarray(ModelConstants.X_IDXS, dtype=np.float64)
     lookahead = float(np.clip(1.5 * v_ego, 12.0, 30.0))
     fit = (x >= 5.0) & (x <= 35.0)
-    lane_width = left_y - right_y
+    lane_width = np.abs(inner_a - inner_b)
 
     if not (np.count_nonzero(fit) >= 3 and
             np.isfinite(left_prob) and np.isfinite(right_prob) and
-            np.all(np.isfinite(left_y[fit])) and np.all(np.isfinite(right_y[fit])) and
+            np.all(np.isfinite(inner_a[fit])) and np.all(np.isfinite(inner_b[fit])) and
             np.all((lane_width[fit] >= MIN_LANE_WIDTH) & (lane_width[fit] <= MAX_LANE_WIDTH))):
       self.full_active = False
       return 0.0, None, "e2e: lane geometry"
@@ -132,7 +138,7 @@ class LanePolicyHelper:
       self.full_active = False
       return 0.0, None, "e2e: lane-width stability"
 
-    a, b, c = np.polyfit(x[fit], 0.5 * (left_y[fit] + right_y[fit]), 2)
+    a, b, c = np.polyfit(x[fit], 0.5 * (inner_a[fit] + inner_b[fit]), 2)
     slope = 2.0 * a * lookahead + b
     geometry_curvature = 2.0 * a / ((1.0 + slope * slope) ** 1.5)
     lane_curvature = (geometry_curvature +
