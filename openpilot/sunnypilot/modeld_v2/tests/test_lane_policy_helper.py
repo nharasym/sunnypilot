@@ -22,15 +22,16 @@ V_EGO = 25.0
 
 def _model_output(offset=0.0, curvature=0.0, left_prob=0.9, right_prob=0.9,
                   half_width=1.8, lane_change=0.0, plan_offset=None):
-  """Straight-ish lane whose midpoint sits `offset` m to the left of the car."""
+  """Straight-ish lane whose midpoint sits `offset` m from the car along +y (model frame: +y is RIGHT)."""
   n = len(ModelConstants.X_IDXS)
   mid = offset + 0.5 * curvature * X ** 2
   lane_lines = np.zeros((1, 4, n, 2), dtype=np.float32)
-  # REAL device convention (measured, route 000000d5): index 1 is the RIGHT inner line and
-  # index 2 the LEFT, so (1 - 2) is NEGATIVE. The fixture must match or the tests validate a
-  # layout that does not exist -- the original orientation made the width gate unreachable.
-  lane_lines[0, 1, :, 0] = mid - half_width      # inner line 1 = RIGHT
-  lane_lines[0, 2, :, 0] = mid + half_width      # inner line 2 = LEFT
+  # REAL device convention (measured, route 000000d5): (line 1 - line 2) is NEGATIVE, and since
+  # the model frame has +y RIGHT that makes index 1 the LEFT inner line and index 2 the RIGHT
+  # (fill_model_msg's naming). The fixture must match or the tests validate a layout that does
+  # not exist -- the original orientation made the width gate unreachable.
+  lane_lines[0, 1, :, 0] = mid - half_width      # inner line 1 = LEFT  (smaller y)
+  lane_lines[0, 2, :, 0] = mid + half_width      # inner line 2 = RIGHT (larger y)
 
   # probs are interleaved; the helper de-interleaves with [0, 1::2] like fill_model_msg
   probs = np.zeros((1, 8), dtype=np.float32)
@@ -98,11 +99,11 @@ class TestLanePolicyEngages:
     for h in (left, centre, right):
       h.set_state(enabled=True, blinkers_active=False)
 
-    out_left = _settle(left, _model_output(offset=0.4))     # midpoint 0.4 m left of us
+    out_left = _settle(left, _model_output(offset=0.4))     # midpoint 0.4 m along +y from us
     out_centre = _settle(centre, _model_output(offset=0.0))
     out_right = _settle(right, _model_output(offset=-0.4))
 
-    # lane to our left -> steer left (positive curvature), and vice versa
+    # lane centre at +y (right, in the model frame) -> positive curvature (right), and vice versa
     assert out_left > out_centre > out_right
     assert out_left > 0.0 > out_right
     assert left.weight > 0.9
@@ -201,7 +202,7 @@ class TestLaneLineSignConvention:
   def test_inner_line_1_minus_2_is_negative_on_real_data(self):
     mo = _model_output(offset=0.0, half_width=1.75)
     w = mo['lane_lines'][0, 1, :, 0] - mo['lane_lines'][0, 2, :, 0]
-    assert np.all(w < 0), "index 1 must be the RIGHT line; see the note in lane_policy_helper"
+    assert np.all(w < 0), "line 1 must have the smaller y (it is the LEFT line, +y is right); see lane_policy_helper"
 
   def test_engages_despite_the_negative_raw_width(self):
     # the shipped bug: a signed width gate never passed, so the feature was silently inert
@@ -211,7 +212,7 @@ class TestLaneLineSignConvention:
     assert h.weight > 0.9, "width gate must accept the real (negative) raw ordering"
 
   def test_offset_sign_survives_the_swap(self):
-    # midpoint is order-independent, so lane-to-our-left must still steer left
+    # midpoint is order-independent, so a lane centre at +y must still steer toward +y
     left, right = LanePolicyHelper(), LanePolicyHelper()
     for h in (left, right):
       h.set_state(enabled=True, blinkers_active=False)
