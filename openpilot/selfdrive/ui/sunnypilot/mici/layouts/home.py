@@ -10,6 +10,7 @@ import pyray as rl
 
 from openpilot.selfdrive.ui.mici.layouts.home import MiciHomeLayout
 from openpilot.selfdrive.ui.ui_state import ui_state, ChestnutState
+from openpilot.sunnypilot.hihy_release import get_hihy_release  # HL-FEAT(release-stamp)
 from openpilot.system.ui.lib.application import FontWeight
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
@@ -18,6 +19,16 @@ class MiciHomeLayoutSP(MiciHomeLayout):
   def __init__(self):
     super().__init__()
     self._openpilot_label = UnifiedLabel("sunnypilot", font_size=88, font_weight=FontWeight.AUDIOWIDE, max_width=480, wrap_text=False)
+
+  def _get_version_text(self) -> tuple[str, str, str, str] | None:
+    # HL-FEAT(release-stamp): "2026.003.000 r23" -- the fork's generation after the version.
+    # Everything else (branch, commit, date) is upstream's tuple untouched.
+    text = super()._get_version_text()
+    if text is None:
+      return None
+    tag = get_hihy_release()
+    version, branch, commit, date_str = text
+    return (f"{version} {tag}" if tag else version), branch, commit, date_str
 
   def _set_chestnut_visibility(self):
     usb_connected = ui_state.usb_connected
