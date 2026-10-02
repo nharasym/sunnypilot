@@ -9,6 +9,7 @@ from openpilot.cereal import messaging, custom
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
+from openpilot.sunnypilot.selfdrive.controls.lib.cruise_accel_scale import CruiseAccelScale  # HL-FEAT(cruise-accel-scale)
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.smart_cruise_control import SmartCruiseControl
@@ -32,6 +33,7 @@ class LongitudinalPlannerSP:
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
     self.e2e_alerts_helper = E2EAlertsHelper()
+    self.cruise_accel_scale = CruiseAccelScale()  # HL-FEAT(cruise-accel-scale): default 1.0 == upstream
 
     self.output_v_target = 0.
     self.output_a_target = 0.
@@ -75,6 +77,7 @@ class LongitudinalPlannerSP:
 
   def update(self, sm: messaging.SubMaster) -> None:
     self.events_sp.clear()
+    self.cruise_accel_scale.update()  # HL-FEAT(cruise-accel-scale)
     self.dec.update(sm)
     self.e2e_alerts_helper.update(sm, self.events_sp)
 
