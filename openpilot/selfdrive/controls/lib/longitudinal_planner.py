@@ -35,8 +35,15 @@ def get_max_accel(v_ego):
 def get_coast_accel(pitch):
   return np.sin(pitch) * -5.65 - 0.3  # fitted from data using xx/projects/allow_throttle/compute_coast_accel.py
 
-def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle):
+def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle, cruise_scale=None):
   max_accel = ACCEL_MAX if e2e else get_max_accel(v_ego)
+  a_min = A_CRUISE_MIN
+  j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
+  # HL-FEAT(cruise-accel-scale): scale the TABLE ceiling and the ramp here, BEFORE the lateral-
+  # accel and no-throttle coast caps below -- the coast cap can be negative and must not be
+  # scaled toward zero. Floor passes through. None or 1.0 is upstream exactly.
+  if cruise_scale is not None:
+    max_accel, j_cruise, a_min = cruise_scale.apply(e2e, max_accel, j_cruise, a_min)
 
   if not e2e:
     a_total_max = np.interp(v_ego, _A_TOTAL_MAX_BP, _A_TOTAL_MAX_V)
@@ -48,8 +55,7 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
       coast_limit = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [max_accel, clipped_accel_coast])
       max_accel = min(max_accel, coast_limit)
 
-  target_accel = np.clip(v_cruise - v_ego, A_CRUISE_MIN, max_accel)
-  j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
+  target_accel = np.clip(v_cruise - v_ego, a_min, max_accel)
   target_accel = float(np.clip(target_accel, a_cruise_prev - j_cruise * dt, a_cruise_prev + j_cruise * dt))
 
   return target_accel
@@ -140,9 +146,15 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
 
     is_e2e = self.is_e2e(sm)
 
+    # HL-FEAT(cruise-accel-scale): stock ramp while forceDecel (driver-monitoring / soft-disable
+    # escalation) and for Smart Cruise Control descents, whose anticipation horizon a slower
+    # ramp would eat into. Everywhere else the dial applies.
+    bypass_scale = sm['controlsState'].forceDecel or self.source in (LongitudinalPlanSource.sccVision, LongitudinalPlanSource.sccMap)
+    cruise_scale = None if bypass_scale else self.cruise_accel_scale
     self.a_cruise = get_cruise_accel(is_e2e, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
-                                     accel_coast, self.allow_throttle)
+                                     accel_coast, self.allow_throttle,
+                                     cruise_scale=cruise_scale)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
