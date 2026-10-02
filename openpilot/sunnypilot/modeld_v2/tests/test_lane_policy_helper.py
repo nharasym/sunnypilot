@@ -26,8 +26,11 @@ def _model_output(offset=0.0, curvature=0.0, left_prob=0.9, right_prob=0.9,
   n = len(ModelConstants.X_IDXS)
   mid = offset + 0.5 * curvature * X ** 2
   lane_lines = np.zeros((1, 4, n, 2), dtype=np.float32)
-  lane_lines[0, 1, :, 0] = mid + half_width      # left inner
-  lane_lines[0, 2, :, 0] = mid - half_width      # right inner
+  # REAL device convention (measured, route 000000d5): index 1 is the RIGHT inner line and
+  # index 2 the LEFT, so (1 - 2) is NEGATIVE. The fixture must match or the tests validate a
+  # layout that does not exist -- the original orientation made the width gate unreachable.
+  lane_lines[0, 1, :, 0] = mid - half_width      # inner line 1 = RIGHT
+  lane_lines[0, 2, :, 0] = mid + half_width      # inner line 2 = LEFT
 
   # probs are interleaved; the helper de-interleaves with [0, 1::2] like fill_model_msg
   probs = np.zeros((1, 8), dtype=np.float32)
@@ -190,3 +193,26 @@ class TestLanePolicyReleaseIsRamped:
       h.apply(mo, E2E, V_EGO)
     assert h.apply(mo, E2E, V_EGO) == E2E
     assert h.weight == 0.0
+
+
+class TestLaneLineSignConvention:
+  """Pins the measured device convention. If these fail, re-measure before 'fixing' them."""
+
+  def test_inner_line_1_minus_2_is_negative_on_real_data(self):
+    mo = _model_output(offset=0.0, half_width=1.75)
+    w = mo['lane_lines'][0, 1, :, 0] - mo['lane_lines'][0, 2, :, 0]
+    assert np.all(w < 0), "index 1 must be the RIGHT line; see the note in lane_policy_helper"
+
+  def test_engages_despite_the_negative_raw_width(self):
+    # the shipped bug: a signed width gate never passed, so the feature was silently inert
+    h = LanePolicyHelper()
+    h.set_state(enabled=True, blinkers_active=False)
+    _settle(h, _model_output(offset=0.4))
+    assert h.weight > 0.9, "width gate must accept the real (negative) raw ordering"
+
+  def test_offset_sign_survives_the_swap(self):
+    # midpoint is order-independent, so lane-to-our-left must still steer left
+    left, right = LanePolicyHelper(), LanePolicyHelper()
+    for h in (left, right):
+      h.set_state(enabled=True, blinkers_active=False)
+    assert _settle(left, _model_output(offset=0.4)) > _settle(right, _model_output(offset=-0.4))
