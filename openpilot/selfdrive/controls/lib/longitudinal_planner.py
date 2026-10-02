@@ -149,7 +149,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     # HL-FEAT(cruise-accel-scale): stock ramp while forceDecel (driver-monitoring / soft-disable
     # escalation) and for Smart Cruise Control descents, whose anticipation horizon a slower
     # ramp would eat into. Everywhere else the dial applies.
-    bypass_scale = sm['controlsState'].forceDecel or self.source in (LongitudinalPlanSource.sccVision, LongitudinalPlanSource.sccMap)
+    bypass_scale = sm['controlsState'].forceDecel or self.source_is_scc
     cruise_scale = None if bypass_scale else self.cruise_accel_scale
     self.a_cruise = get_cruise_accel(is_e2e, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
