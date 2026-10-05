@@ -4,23 +4,24 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import math
 import pyray as rl
 
 from openpilot.cereal import log
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
+from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import BADGE_STYLE
 from openpilot.selfdrive.ui.sunnypilot.onroad.blind_spot_indicators import BlindSpotIndicators
 from openpilot.selfdrive.ui.ui_state import ChestnutState, ui_state
-from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 ThermalStatus = log.DeviceState.ThermalStatus
 
-# HL-FEAT(egpu-temp): GPU + CPU temp readout under the onroad chestnut icon. The icon's
-# color keeps meaning STATE (green=active, orange=uncompiled/failed, white=loading) — the
-# thermal zone is encoded in the temp TEXT color instead, so orange never becomes ambiguous
+# HL-FEAT(egpu-temp): GPU + CPU temp readout under the onroad GPU badge. The badge's
+# color keeps meaning STATE (green=active, amber=uncompiled/failed, grey=loading) — the
+# thermal zone is encoded in the temp TEXT color instead, so amber never becomes ambiguous
 # ("hot" vs "failed").
-# Layout (user-picked): a narrow right-aligned column under the icon — GPU first, on the
-# icon it belongs to, CPU beneath. The right blind-spot indicator occupies this corner from
+# Layout (user-picked): a narrow right-aligned column under the badge — the GPU value first,
+# under the badge it belongs to, CPU beneath. The right blind-spot indicator occupies this corner from
 # rect.y+100 down (blind_spot_indicators.py BLIND_SPOT_Y_OFFSET) and renders AFTER the HUD,
 # and the second line's ink reaches past y+100, so the CPU line is skipped while that
 # indicator is showing — a whole number missing beats a half-covered one.
@@ -37,81 +38,74 @@ _TEMP_LINE_H = 28  # line advance; the scaled 26px box is ~30px tall, digits ink
 _GPU_AMBER_C = 85
 _GPU_RED_C = 100
 
-# HL-FEAT(egpu-icon-persist): sized to match the HOME screen's eGPU icon per user
-# preference — the DMoji-glyph-height version (52px tall) read too large onroad, 37px
-# tall reads right. Upstream's chestnut icons are 44px tall natively (green 60x44,
-# orange 75x44), so scale by 37/44 preserving each icon's aspect. Vertical centering
-# happens on the DMoji centerline (rect.y+40, see _draw_model_source) and is
-# icon-height-independent.
-_CHESTNUT_SCALE = 37 / 44
-
-
-class _AlwaysVisible:
-  """HL-FEAT(egpu-icon-persist): drop-in for the chestnut icon's FirstOrderFilter alpha gate.
-
-  Upstream shows the onroad chestnut status icon only while loading or for ~2.5s after a
-  state change, then fades it out (hud_renderer._draw_model_source). Replacing the
-  filter with a constant keeps the icon permanently on screen in its state color
-  (green=big model active, pulsing white=loading, orange=uncompiled/failed) while
-  leaving ALL of upstream's state logic untouched — the icon still disappears entirely
-  in the DISCONNECTED and READY states, which _draw_model_source never draws.
-  """
-  x = 1.0
-
-  def update(self, _):
-    return 1.0
+# HL-FEAT(gpu-badge): the chestnut state used to be upstream's chestnut PNG, relocated to the
+# top band and held permanently (formerly egpu-icon-persist, r17-r31). It is now a rounded word
+# badge "GPU" in the same place, in the look Nick picked from a concept video on 2026-10-04:
+# grey and breathing while the big model loads, green once it runs on the card, amber when
+# uncompiled or failed. Same state source as before (ui_state.chestnut_state), same alert-band
+# rule, same anchor (right edge, DMoji centreline); the badge is ~30 px tall against the icon's
+# 37, so the temp lines under it sit ~4 px higher than before. Colours come from BADGE_STYLE in
+# startup_phases.py as plain tuples: pyray's WHITE/BLACK are tuples without .r/.g/.b, and
+# touching them that way kills the UI process on the first onroad frame.
+_BADGE_FONT_SIZE = 22
+_BADGE_PAD_X = 9
+_BADGE_PAD_Y = 2
 
 
 class HudRendererSP(HudRenderer):
   def __init__(self):
     super().__init__()
     self.blind_spot_indicators = BlindSpotIndicators()
-    self._chestnut_alpha_filter = _AlwaysVisible()  # HL-FEAT(egpu-icon-persist)
-    # HL-FEAT(egpu-icon-persist): home-screen-sized textures (see _CHESTNUT_SCALE above);
-    # upstream's position math reads icon.width/height so it self-adjusts to these
-    self._txt_chestnut = gui_app.texture('icons_mici/chestnut.png', round(60 * _CHESTNUT_SCALE), 37)
-    self._txt_chestnut_green = gui_app.texture('icons_mici/chestnut_green.png', round(60 * _CHESTNUT_SCALE), 37)
-    self._txt_chestnut_orange = gui_app.texture('icons_mici/chestnut_orange.png', round(75 * _CHESTNUT_SCALE), 37)
+    self._badge_h = 0.0  # HL-FEAT(gpu-badge): set when drawn; the temps hang off its bottom edge
 
   def _update_state(self) -> None:
     super()._update_state()
     self.blind_spot_indicators.update()
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
-    # HL-FEAT(egpu-icon-persist): alerts own the top band — the mici alert layer puts its
-    # turn-signal/blind-spot glyphs at top-right and renders BEFORE the HUD, so the
-    # now-permanent icon would paint over them (upstream never hit this: its icon was
-    # bottom-anchored and transient). Same alert-active check the alert renderer uses.
+    # HL-FEAT(gpu-badge): full override; upstream's SP renderer has none and upstream's base
+    # draws the chestnut PNG bottom-right (mici/onroad/hud_renderer.py _draw_model_source) --
+    # re-check that mapping at each port. Alerts own the top band: the mici alert layer puts its
+    # turn-signal/blind-spot glyphs at top-right and renders BEFORE the HUD.
     if ui_state.sm['selfdriveState'].alertSize != 0:
       return
-    # HL-FEAT(egpu-icon-persist): relocate the now-permanent chestnut icon to the TOP of the
-    # view, vertically centered on the DMoji's centerline (rect.y + 40). Upstream
-    # bottom-anchors it:
-    #   pos.y = rect.y + H - 14 - (wheel_h + icon_h) / 2      (wheel_h = 50)
-    # and uses rect for nothing else in the method (verified at mici/onroad/hud_renderer.py
-    # _draw_model_source). Solving for the icon's center at y+40:
-    #   H = 40 - icon_h/2 + 14 + (50 + icon_h)/2 = 40 + 14 + 25 = 79
-    # (icon_h cancels, so the math is independent of which state icon is showing.)
-    super()._draw_model_source(rl.Rectangle(rect.x, rect.y, rect.width, 79))
+    if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
+      return
+    style = BADGE_STYLE.get(ui_state.chestnut_state.value)
+    if style is None:            # DISCONNECTED / READY: nothing to show, like the icon before
+      return
+    (bg_r, bg_g, bg_b), (fg_r, fg_g, fg_b), breathe = style
+    opacity = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(rl.get_time() * 6.0)) if breathe else 1.0
+    a = int(255 * opacity)
+
+    text = "GPU"
+    size = measure_text_cached(self._font_bold, text, _BADGE_FONT_SIZE)
+    badge_w, badge_h = size.x + 2 * _BADGE_PAD_X, size.y + 2 * _BADGE_PAD_Y
+    self._badge_h = badge_h
+    # vertically centred on the DMoji centreline (rect.y + 40), right edge at right - 10 like the icon was
+    x, y = rect.x + rect.width - 10 - badge_w, rect.y + 40 - badge_h / 2
+    rl.draw_rectangle_rounded(rl.Rectangle(x, y, badge_w, badge_h), 0.45, 8, rl.Color(bg_r, bg_g, bg_b, a))
+    rl.draw_text_ex(self._font_bold, text, rl.Vector2(x + _BADGE_PAD_X, y + _BADGE_PAD_Y), _BADGE_FONT_SIZE, 0,
+                    rl.Color(fg_r, fg_g, fg_b, a))
     self._draw_temps(rect)
 
   def _draw_temps(self, rect: rl.Rectangle) -> None:
     # HL-FEAT(egpu-temp): GPU metrics only flow while the big model is actually running on
     # the card (modeld gates the SMU read on that), so gate on ACTIVE + a live publisher +
     # a real reading; tempC is 0 until the first SMU refresh. CPU rides the same gate so the
-    # corner stays empty with no dock — deliberate, since the readout belongs to the icon.
+    # corner stays empty with no dock — deliberate, since the readout belongs to the badge.
     if ui_state.chestnut_state != ChestnutState.ACTIVE or not ui_state.sm.alive['chestnutState']:
       return
     gpu_temp = ui_state.sm['chestnutState'].tempC
     if gpu_temp <= 0:
       return
 
-    # icon bottom edge is its centerline (rect.y+40) plus half of the 37px display height;
-    # both lines right-aligned on the icon's own right edge (upstream anchors it at right - 10)
+    # badge bottom edge is its centerline (rect.y+40) plus half its height; both lines
+    # right-aligned on the badge's right edge. The badge IS the GPU label, so its line is the bare value.
     right = rect.x + rect.width - 10
-    y = rect.y + 40 + 37 / 2 + 4
+    y = rect.y + 40 + self._badge_h / 2 + 4
     gpu_color = self._temp_color(gpu_temp >= _GPU_AMBER_C, gpu_temp >= _GPU_RED_C)
-    self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
+    self._draw_temp(right, y, "", gpu_temp, gpu_color)
 
     # hottest core, colored by the device's own verdict (see the zone note at the top).
     # Skipped while the right blind-spot indicator shows (same test it renders on, toggle
@@ -135,13 +129,14 @@ class HudRendererSP(HudRenderer):
 
   def _draw_temp(self, right_x: float, y: float, label: str, temp: float, color: rl.Color) -> float:
     """HL-FEAT(egpu-temp): draw '<label> NN°' right-aligned at right_x; returns its left edge."""
-    label_text, value_text = f"{label} ", f"{round(temp)}°"
-    label_w = measure_text_cached(self._font_semi_bold, label_text, _TEMP_FONT_SIZE).x
+    label_text, value_text = (f"{label} " if label else ""), f"{round(temp)}°"
+    label_w = measure_text_cached(self._font_semi_bold, label_text, _TEMP_FONT_SIZE).x if label_text else 0.0
     value_w = measure_text_cached(self._font_semi_bold, value_text, _TEMP_FONT_SIZE).x
     x = right_x - (label_w + value_w)
     # label stays dim so the eye lands on the numbers; only the value carries the thermal color
-    rl.draw_text_ex(self._font_semi_bold, label_text, rl.Vector2(x, y), _TEMP_FONT_SIZE, 0,
-                    rl.Color(255, 255, 255, 190))
+    if label_text:
+      rl.draw_text_ex(self._font_semi_bold, label_text, rl.Vector2(x, y), _TEMP_FONT_SIZE, 0,
+                      rl.Color(255, 255, 255, 190))
     rl.draw_text_ex(self._font_semi_bold, value_text, rl.Vector2(x + label_w, y), _TEMP_FONT_SIZE, 0, color)
     return x
 
