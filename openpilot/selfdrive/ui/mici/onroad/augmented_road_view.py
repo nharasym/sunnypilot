@@ -22,6 +22,7 @@ from enum import IntEnum
 if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.mici.onroad.hud_renderer import HudRendererSP as HudRenderer
   from openpilot.selfdrive.ui.sunnypilot.ui_state import OnroadTimerStatus
+  from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_rail import StartupRail  # HL-FEAT(startup-rail)
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.ExtrinsicsCalibration.Status.calibrated
@@ -156,6 +157,7 @@ class AugmentedRoadView(CameraView):
     self._alert_renderer = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer()
     self._confidence_ball = ConfidenceBall()
+    self._startup_rail = StartupRail() if gui_app.sunnypilot_ui() else None  # HL-FEAT(startup-rail)
     self._offroad_label = UnifiedLabel("start the car to\nuse sunnypilot", 54, FontWeight.DISPLAY,
                                        text_color=rl.Color(255, 255, 255, int(255 * 0.9)),
                                        alignment=TextAlignment.CENTER,
@@ -244,6 +246,8 @@ class AugmentedRoadView(CameraView):
 
     # Custom UI extension point - add custom overlays here
     # Use self._content_rect for positioning within camera bounds
+    if self._startup_rail is not None:
+      self._startup_rail.render(self.rect)  # HL-FEAT(startup-rail): side panel, under the ball
     self._confidence_ball.render(self.rect)
 
     self._bookmark_icon.render(self.rect)
