@@ -5,7 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
 HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
-lights one rounded segment per boot milestone and names the step in progress beside it,
+lights one rounded segment per boot step (processes and model loads) and names the step in progress beside it,
 rotated to read bottom-to-top. Turns green with a bigger "ready" once the big model is live on
 the eGPU, holds, then fades. Amber for a failed big model or a dead process.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
@@ -21,7 +21,7 @@ from openpilot.cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
-  SEGMENTS, LABELS, DeadProcessTracker, RailInputs, RailMode, RailState, StartupPhases,
+  SEGMENTS, LABELS, BIG_MODEL_STEP, DeadProcessTracker, RailInputs, RailMode, RailState, StartupPhases,
 )
 from openpilot.selfdrive.ui.ui_state import ChestnutState, UIStatus, ui_state
 from openpilot.system.ui.lib.application import FONT_SCALE, FontWeight, gui_app
@@ -58,6 +58,7 @@ class StartupRail(Widget):
     self._phases = StartupPhases()
     self._dead = DeadProcessTracker()
     self._dead_name: str | None = None
+    self._procs_ok: frozenset[str] = frozenset()
     self._state = RailState(RailMode.HIDDEN, 0, "", None, False)
     self._alpha = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._font = gui_app.font(FontWeight.SEMI_BOLD)
@@ -72,6 +73,7 @@ class StartupRail(Widget):
     self._phases.reset()
     self._dead.reset()
     self._dead_name = None
+    self._procs_ok = frozenset()
     self._alpha.x = 0.0
     self._label = self._prev_label = ""
     self._label_t = 0.0
@@ -81,10 +83,14 @@ class StartupRail(Widget):
     sf = ui_state.started_frame
     rf = sm.recv_frame
     if sm.updated['managerState']:           # 2 Hz message; only rescan the process list when it changes
-      if sm.alive['managerState']:
-        missing = {p.name for p in sm['managerState'].processes if p.shouldBeRunning and not p.running}
+      if sm.alive['managerState'] and rf.get('managerState', 0) > sf:
+        procs = sm['managerState'].processes
+        missing = {p.name for p in procs if p.shouldBeRunning and not p.running}
+        # a process listed as neither running nor expected was not scheduled this session (the manager
+        # starts the whole onroad set in one pass before it publishes), so its step counts as done
+        self._procs_ok = frozenset(p.name for p in procs if p.running or not p.shouldBeRunning)
       else:
-        missing = set()
+        missing, self._procs_ok = set(), frozenset()
       self._dead_name = self._dead.update(missing, t)
     camera_seen = any(rf.get(s, 0) > sf for s in ("narrowRoadCameraState", "wideRoadCameraState"))
     # sm[...] keeps the last list ever received, so gate on this session like every other signal: a
@@ -106,11 +112,12 @@ class StartupRail(Widget):
       model_small_seen=model_seen and not big,
       chestnut_uncompiled=ui_state.chestnut_state == ChestnutState.UNCOMPILED,
       dead_process=self._dead_name,
+      procs_ok=self._procs_ok,
     )
 
   def _demo_state(self, t: float) -> RailState:
     # layout iteration on the device without a car: walk every look, 2 s each
-    steps = [RailState(RailMode.STARTING, n, LABELS[n], (t % 2.0) * 9 if n == 3 else None, True) for n in range(SEGMENTS)]
+    steps = [RailState(RailMode.STARTING, n, LABELS[n], (t % 2.0) * 9 if n == BIG_MODEL_STEP else None, True) for n in range(SEGMENTS)]
     steps += [RailState(RailMode.READY, SEGMENTS, "ready", None, True),
               RailState(RailMode.FAULT, SEGMENTS, "dmonitoringmodeld not running", None, True),
               RailState(RailMode.FAILED, SEGMENTS, "big model failed", None, True)]
