@@ -101,11 +101,12 @@ class HudRendererSP(HudRenderer):
       return
 
     # badge bottom edge is its centerline (rect.y+40) plus half its height; both lines
-    # right-aligned on the badge's right edge. The badge IS the GPU label, so its line is the bare value.
+    # right-aligned on the badge's right edge. "GPU" stays on the line even under the badge so the
+    # number says what it is (road test 2026-10-05: a bare "56°" read as unlabelled).
     right = rect.x + rect.width - 10
     y = rect.y + 40 + self._badge_h / 2 + 4
     gpu_color = self._temp_color(gpu_temp >= _GPU_AMBER_C, gpu_temp >= _GPU_RED_C)
-    self._draw_temp(right, y, "", gpu_temp, gpu_color)
+    self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
 
     # hottest core, colored by the device's own verdict (see the zone note at the top).
     # Skipped while the right blind-spot indicator shows (same test it renders on, toggle

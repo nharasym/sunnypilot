@@ -198,7 +198,11 @@ class SelfdriveD(CruiseHelper):
     loading = self.params.get_bool("ChestnutLoading")
     if self.big_model_loading and not loading:
       self.big_model_ready_t = time.monotonic()
-      self.events_sp.add(custom.OnroadEventSP.EventName.bigModelReady)
+      # HL-FEAT(ready-to-drive): the ready chime only when the big model actually loaded. modeld writes
+      # ChestnutActive before it clears ChestnutLoading, and on a timeout/exception it still clears the
+      # loading flag, so the bare edge also fired the chime on a failed load (bigModelFailed is silent).
+      if self.params.get("ChestnutActive") is True:
+        self.events_sp.add(custom.OnroadEventSP.EventName.bigModelReady)
     self.big_model_loading = loading
     if self.big_model_loading:
       self.events.add(EventName.bigModelLoading)
