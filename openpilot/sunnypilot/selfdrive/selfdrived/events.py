@@ -38,31 +38,14 @@ def speed_limit_adjust_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.
     Priority.LOW, VisualAlert.none, AudibleAlert.none, 4.)
 
 
-def _loaded_models_text() -> str:
-  """HL-FEAT(ready-to-drive): 'Big Model V2 / Small Model' from the active bundles, read when
-  the alert fires (not at import) so a model switch shows the new name. Never raises: this
-  runs inside selfdrived's alert pass."""
-  from openpilot.sunnypilot.models.helpers import get_active_bundle
-  names = []
-  for chestnut in (True, False):
-    try:
-      b = get_active_bundle(chestnut=chestnut)
-      if b is not None and b.displayName:
-        names.append(str(b.displayName))
-    except Exception:
-      pass
-  return " / ".join(names)
-
-
 def big_model_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
-  # HL-FEAT(ready-to-drive): "Ready To Drive" with the loaded models underneath, replacing the
-  # bare "Big Model Ready". mid so the second (smaller) line renders; same chime. Held 5 s
-  # (was 2) so the model names are actually readable -- road-test request 2026-10-02.
+  # HL-FEAT(ready-to-drive): the big model is live. Sound only: the visual moved to the onroad
+  # startup rail, which turns green with "ready" and then names the loaded models (2026-10-05;
+  # r25-r33 showed a 5 s "Ready To Drive" pop-up over the camera view with the model names).
   return Alert(
-    "Ready To Drive",
-    _loaded_models_text(),
-    AlertStatus.normal, AlertSize.mid,
-    Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 5.)
+    "", "",
+    AlertStatus.normal, AlertSize.none,
+    Priority.LOW, VisualAlert.none, AudibleAlert.prompt, .2)
 
 
 def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
