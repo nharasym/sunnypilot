@@ -17,6 +17,7 @@ The rail doubles as a health strip: a process the manager expects to be running 
 is not shows "<name> not running" in the fault colour. The manager in this tree does not
 restart a crashed onroad process, so that normally stays up until the next ignition.
 """
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -42,7 +43,9 @@ BIG_MODEL_STEP = [k for k, _ in STEPS].index("bigmodel")   # the lit count durin
 # up at +1.2 s but its main loop (the python/tinygrad import) takes until +15-18 s, which is what
 # "starting modeld" should narrate, so that step keys on the loading edge below.
 STEP_PROCESSES = {"card": ("card",), "selfdrived": ("selfdrived",), "plannerd": ("plannerd",), "controlsd": ("controlsd",)}
-READY_HOLD_S = 2.5     # how long the green "ready" stays before fading (matches the old chestnut icon)
+READY_HOLD_S = 2.5     # how long the green "ready" stays before fading when no model names are known
+READY_WORD_S = 2.0     # with model names: "ready" first, then the drum turns through the loaded models
+MODEL_NAME_S = 2.0     # ... each model name this long, then the rail fades
 FAILED_HOLD_S = 5.0    # how long an amber big-model message stays before fading
 DEAD_PROCESS_DEBOUNCE_S = 0.5   # one managerState period: filters the start()->is_alive() frame of a launch
 # only processes the drive depends on are worth an amber strip for the rest of the drive (the manager
@@ -64,6 +67,14 @@ BADGE_STYLE: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], bool]] 
   "uncompiled": ((255, 175, 3), (0, 0, 0), False),
   "failed": ((255, 175, 3), (0, 0, 0), False),
 }
+
+
+def short_model_name(display_name: str) -> str:
+  """'Cinque Terre Model V2 (September 08, 2026)' -> 'Cinque Terre V2': the date and the word
+  'Model' carry nothing in a 240 px rotated label."""
+  name = re.sub(r"\s*\(.*?\)", "", display_name or "")
+  name = re.sub(r"\bModel\b", "", name)
+  return re.sub(r"\s+", " ", name).strip()
 
 
 class RailMode(Enum):
@@ -88,6 +99,7 @@ class RailInputs:
   model_small_seen: bool = False  # a modelV2 frame with big=False arrived this session
   chestnut_uncompiled: bool = False  # dock present but no compiled big model
   dead_process: str | None = None  # a process that should be running but is not (debounced)
+  model_names: tuple[str, ...] = ()  # loaded models (big first), shown on the drum after "ready"
   procs_ok: frozenset[str] = frozenset()  # manager process names running, or not scheduled this session (dev modes
                                           # swap plannerd/controlsd out; an unscheduled step must not stall the strip)
 
@@ -193,7 +205,15 @@ class StartupPhases:
     self._failed_t = None
 
     if lit >= SEGMENTS:
-      return RailState(RailMode.READY, lit, "ready", None, self._hold("_ready_t", i.t, READY_HOLD_S))
+      # "ready", then the drum turns through the loaded models (this replaced the Ready To Drive
+      # pop-up's model list, 2026-10-05), then the rail fades
+      names = tuple(n for n in (short_model_name(m) for m in i.model_names) if n)
+      if not names:
+        return RailState(RailMode.READY, lit, "ready", None, self._hold("_ready_t", i.t, READY_HOLD_S))
+      visible = self._hold("_ready_t", i.t, READY_WORD_S + MODEL_NAME_S * len(names))
+      dt = i.t - self._ready_t
+      label = "ready" if dt < READY_WORD_S else names[min(len(names) - 1, int((dt - READY_WORD_S) / MODEL_NAME_S))]
+      return RailState(RailMode.READY, lit, label, None, visible)
 
     elapsed = (i.t - self._step_t) if (lit == BIG_MODEL_STEP and self._step_t is not None) else None
     return RailState(RailMode.STARTING, lit, LABELS[lit], elapsed, True)
