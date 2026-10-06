@@ -7,7 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
 lights one rounded segment per boot step (processes and model loads) and names the step in progress beside it,
 rotated to read bottom-to-top. Turns green with a bigger "ready" once the big model is live on
-the eGPU, holds, then fades. Amber for a failed big model or a dead process.
+the eGPU, then turns the drum through the loaded model names, then fades. Amber for a failed big model or a dead process.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
 
 Draws only inside the 60 px side panel (outside the camera scissor), so it can never cover an
@@ -59,6 +59,7 @@ class StartupRail(Widget):
     self._dead = DeadProcessTracker()
     self._dead_name: str | None = None
     self._procs_ok: frozenset[str] = frozenset()
+    self._model_names: tuple[str, ...] | None = None
     self._state = RailState(RailMode.HIDDEN, 0, "", None, False)
     self._alpha = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._font = gui_app.font(FontWeight.SEMI_BOLD)
@@ -74,9 +75,25 @@ class StartupRail(Widget):
     self._dead.reset()
     self._dead_name = None
     self._procs_ok = frozenset()
+    self._model_names = None
     self._alpha.x = 0.0
     self._label = self._prev_label = ""
     self._label_t = 0.0
+
+  @staticmethod
+  def _read_model_names() -> tuple[str, ...]:
+    """Big then small display names of the active bundles. Read once per session at the ready
+    edge (two small param reads, never per frame); never raises inside the render loop."""
+    names = []
+    try:
+      from openpilot.sunnypilot.models.helpers import get_active_bundle
+      for chestnut in (True, False):
+        b = get_active_bundle(ui_state.params, chestnut=chestnut)
+        if b is not None and b.displayName:
+          names.append(str(b.displayName))
+    except Exception:
+      pass
+    return tuple(names)
 
   def _inputs(self, t: float) -> RailInputs:
     sm = ui_state.sm
@@ -99,6 +116,8 @@ class StartupRail(Widget):
                                             any(e.name == EventName.bigModelLoading for e in sm['onroadEvents']))
     model_seen = rf.get('modelV2', 0) > sf
     big = bool(sm['modelV2'].big)
+    if model_seen and big and self._model_names is None:
+      self._model_names = self._read_model_names()
     return RailInputs(
       t=t,
       started=ui_state.started,
@@ -113,12 +132,14 @@ class StartupRail(Widget):
       chestnut_uncompiled=ui_state.chestnut_state == ChestnutState.UNCOMPILED,
       dead_process=self._dead_name,
       procs_ok=self._procs_ok,
+      model_names=self._model_names or (),
     )
 
   def _demo_state(self, t: float) -> RailState:
     # layout iteration on the device without a car: walk every look, 2 s each
     steps = [RailState(RailMode.STARTING, n, LABELS[n], (t % 2.0) * 9 if n == BIG_MODEL_STEP else None, True) for n in range(SEGMENTS)]
     steps += [RailState(RailMode.READY, SEGMENTS, "ready", None, True),
+              RailState(RailMode.READY, SEGMENTS, "Cinque Terre V2", None, True),
               RailState(RailMode.FAULT, SEGMENTS, "dmonitoringmodeld not running", None, True),
               RailState(RailMode.FAILED, SEGMENTS, "big model failed", None, True)]
     return steps[int(t / 2.0) % len(steps)]

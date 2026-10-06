@@ -5,20 +5,21 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
-  SEGMENTS, LABELS, STEPS, BIG_MODEL_STEP, READY_HOLD_S, FAILED_HOLD_S, DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE,
-  CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
+  SEGMENTS, LABELS, STEPS, BIG_MODEL_STEP, READY_HOLD_S, READY_WORD_S, MODEL_NAME_S, FAILED_HOLD_S,
+  DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE, CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
+  short_model_name,
 )
 
 PROCS = frozenset({"card", "selfdrived", "plannerd", "controlsd", "modeld_tinygrad", "modeld", "radard", "pandad"})
 
 
 def _in(t=0.0, started=True, dock=True, cam=False, sd=False, loading=False, active=None, failed=False, big=False,
-        small=False, uncompiled=False, dead=None, running=None):
+        small=False, uncompiled=False, dead=None, running=None, names=()):
   # by default every process is up (that is the measured reality from +1.2 s); tests that care pass their own set
   return RailInputs(t=t, started=started, chestnut_present=dock, camera_seen=cam, selfdrive_seen=sd,
                     big_model_loading=loading, chestnut_active=active, chestnut_failed=failed,
                     model_big_seen=big, model_small_seen=small, chestnut_uncompiled=uncompiled, dead_process=dead,
-                    procs_ok=PROCS if running is None else frozenset(running))
+                    procs_ok=PROCS if running is None else frozenset(running), model_names=tuple(names))
 
 
 def _boot(p, t0=0.0):
@@ -224,3 +225,45 @@ class TestBadgeStyle:
       assert all(0 <= c <= 255 for c in bg + fg) and isinstance(breathe, bool)
     assert BADGE_STYLE["loading"][2] and not BADGE_STYLE["active"][2]
     assert BADGE_STYLE["uncompiled"][0] == BADGE_STYLE["failed"][0]    # one amber for both bad states
+
+
+class TestReadyNamesTheModels:
+  BIG = "Cinque Terre Model V2 (September 08, 2026)"
+  SMALL = "Terrible Super Fantastic Do Over Model (August 15, 2026)"
+
+  def _ready_at(self, t):
+    p = StartupPhases()
+    _boot(p)
+    def at(dt):
+      return p.update(_in(t=37.1 + dt, cam=True, sd=True, active=True, big=True, names=(self.BIG, self.SMALL)))
+    return p, at
+
+  def test_short_names(self):
+    assert short_model_name(self.BIG) == "Cinque Terre V2"
+    assert short_model_name(self.SMALL) == "Terrible Super Fantastic Do Over"
+    assert short_model_name("") == "" and short_model_name("Plain") == "Plain"
+
+  def test_ready_then_each_model_then_fade(self):
+    _, at = self._ready_at(0)
+    assert at(0.0).label == "ready" and at(0.0).visible
+    assert at(READY_WORD_S - 0.05).label == "ready"
+    assert at(READY_WORD_S + 0.05).label == "Cinque Terre V2"
+    assert at(READY_WORD_S + MODEL_NAME_S + 0.05).label == "Terrible Super Fantastic Do Over"
+    s = at(READY_WORD_S + 2 * MODEL_NAME_S - 0.05)
+    assert s.visible and s.mode == RailMode.READY
+    assert not at(READY_WORD_S + 2 * MODEL_NAME_S + 0.05).visible
+
+  def test_no_names_keeps_the_plain_ready_hold(self):
+    p = StartupPhases()
+    _boot(p)
+    s = p.update(_in(t=37.1 + READY_HOLD_S - 0.1, cam=True, sd=True, active=True, big=True))
+    assert s.label == "ready" and s.visible
+    assert not p.update(_in(t=37.1 + READY_HOLD_S + 0.1, cam=True, sd=True, active=True, big=True)).visible
+
+  def test_only_big_model_known(self):
+    p = StartupPhases()
+    _boot(p)
+    def at(dt):
+      return p.update(_in(t=37.1 + dt, cam=True, sd=True, active=True, big=True, names=(self.BIG,)))
+    assert at(READY_WORD_S + 0.5).label == "Cinque Terre V2"
+    assert not at(READY_WORD_S + MODEL_NAME_S + 0.05).visible
