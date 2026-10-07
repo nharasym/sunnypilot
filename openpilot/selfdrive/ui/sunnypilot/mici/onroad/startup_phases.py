@@ -26,16 +26,18 @@ from enum import Enum
 # already lit when the camera page appears. They are here because they have failed before (r20:
 # plannerd crash-looped): the strip then stalls on "starting plannerd" and goes amber.
 STEPS = (
-  ("cameras", "starting cameras"),
-  ("card", "starting card"),
-  ("selfdrived", "starting selfdrived"),
-  ("plannerd", "starting plannerd"),
-  ("controlsd", "starting controlsd"),
-  ("modeld", "starting modeld"),          # modeld's main loop, i.e. the ChestnutLoading / bigModelLoading edge
-  ("bigmodel", "loading big model"),      # the long one: big model into the eGPU, ~20 s
-  ("smallmodel", "loading small model"),
-  ("model", "starting model"),            # both models in; waiting for the first big-model frame
+  ("cameras", "cameras"),
+  ("card", "card"),
+  ("selfdrived", "selfdrived"),
+  ("plannerd", "plannerd"),
+  ("controlsd", "controlsd"),
+  ("modeld", "modeld"),                   # modeld's main loop, i.e. the ChestnutLoading / bigModelLoading edge
+  ("bigmodel", "big model"),              # the long one: big model into the eGPU, ~20 s (elapsed counter shown)
+  ("smallmodel", "small model"),
+  ("model", "first frame"),               # both models in; waiting for the first big-model frame
 )
+# labels are bare names: the breathing segment already says "in progress", and short words let the
+# rotated text run at 26 px inside the 240 px panel (road test 2026-10-07: verbs made it unreadable)
 SEGMENTS = len(STEPS)
 LABELS = tuple(label for _, label in STEPS)
 BIG_MODEL_STEP = [k for k, _ in STEPS].index("bigmodel")   # the lit count during which the elapsed counter shows

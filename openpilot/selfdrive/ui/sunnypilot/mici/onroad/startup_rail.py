@@ -30,12 +30,12 @@ from openpilot.system.ui.widgets import Widget
 
 EventName = log.OnroadEvent.EventName
 
-_LABEL_SIZE = 18
-_READY_SIZE = 24
+_LABEL_SIZE = 26           # road test 2026-10-07: 18 px was unreadable from the driver's seat
+_READY_SIZE = 30
 _LABEL_SLIDE_S = 0.3            # the drum: old label slides up and out, new one slides in from below
 _LABEL_SLIDE_PX = 40
-_COL_W = 18
-_GUTTER = 8
+_COL_W = 14                # narrower bars buy the label a 36 px band (60 - 6 - 14 - 4)
+_GUTTER = 6
 _MARGIN_Y = 12
 _GAP = 6
 # text band is [panel.x + _BAND_X, col_x); the rotated glyph box is size * FONT_SCALE wide
