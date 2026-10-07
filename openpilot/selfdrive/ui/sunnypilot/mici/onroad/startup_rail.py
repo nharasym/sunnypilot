@@ -6,7 +6,7 @@ See the LICENSE.md file in the root directory for more details.
 
 HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
 lights one rounded segment per boot step (processes and model loads) and names the step in progress beside it,
-rotated to read bottom-to-top. Turns green with a bigger "ready" once the big model is live on
+rotated to read top-to-bottom. Turns green with a bigger "ready" once the big model is live on
 the eGPU, then turns the drum through the loaded model names, then fades. Amber for a failed big model or a dead process.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
 
@@ -190,7 +190,7 @@ class StartupRail(Widget):
         color = _with_alpha(_COLOR_UNLIT, alpha)
       rl.draw_rectangle_rounded(seg, 0.5, 6, color)
 
-    # label, rotated to read bottom-to-top in the band left of the column
+    # label, rotated to read top-to-bottom in the band left of the column
     if mode == RailMode.READY:
       size, color = _READY_SIZE, _COLOR_READY
     elif mode in (RailMode.FAULT, RailMode.FAILED):
@@ -210,15 +210,17 @@ class StartupRail(Widget):
     if not text:
       return
     # measure_text_cached already applies FONT_SCALE; draw_text_pro does NOT (only draw_text_ex is
-    # patched), so the drawn size is scaled here. The rotated glyph box is size*FONT_SCALE wide
-    # (toward the column) and the measured width tall; shrink to fit the band and the panel.
+    # patched), so the drawn size is scaled here. The text reads TOP-TO-BOTTOM (+90 deg): the driver
+    # sits left of the device and tilts the head right, toward the screen, to read it (road test
+    # 2026-10-07; the concept video's bottom-to-top direction needed a tilt away from the screen).
+    # With +90 deg the glyph box extends to the LEFT of the anchor, so anchor at the band's right
+    # edge; the measured width becomes the on-screen height. Shrink to fit the band and the panel.
     scale = min(1.0, band_w / (size * FONT_SCALE))
     w = measure_text_cached(self._font, text, size).x * scale
     avail = panel.height - 2 * _MARGIN_Y
     if w > avail:
       scale *= avail / w
       w = avail
-    y = panel.y + (panel.height + w) / 2 + offset          # the rotated text runs upward from (x, y)
-    y = min(y, panel.y + panel.height - 4)
-    rl.draw_text_pro(self._font, text, rl.Vector2(panel.x + _BAND_X, y), rl.Vector2(0, 0), -90.0,
-                     size * FONT_SCALE * scale, 0, color)
+    x = panel.x + _BAND_X + band_w - 2
+    y = max(panel.y + 4, panel.y + (panel.height - w) / 2 - offset)   # the drum: a positive offset sits higher
+    rl.draw_text_pro(self._font, text, rl.Vector2(x, y), rl.Vector2(0, 0), 90.0, size * FONT_SCALE * scale, 0, color)
