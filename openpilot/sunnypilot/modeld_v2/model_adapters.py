@@ -156,6 +156,8 @@ class LegacyModelAdapter(BaseModelAdapter):
 
 
 class NativeTinygradAdapter(BaseModelAdapter):
+  VISION_INPUT_NAMES = ('img', 'big_img')  # HL-FIX(native-vision-inputs): slot 0 narrow, slot 1 wide
+
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.is_native = True
@@ -168,8 +170,13 @@ class NativeTinygradAdapter(BaseModelAdapter):
     stride, y_height, uv_height, _ = get_nv12_info(self.cam_w, self.cam_h)
     self.frame_copy_size = stride * (y_height + uv_height)
 
-    self.input_shapes_orig = self.jits['metadata']['input_shapes']
-    self._vision_input_names = [k for k in self.input_shapes_orig if 'img' in k]
+    # HL-FIX(native-vision-inputs): comma's precompiled format names its JIT inputs 'new_img' (the
+    # warped pair) and 'state_img_q' (the recurrent image queue) -- neither is a camera, and neither
+    # contains 'big', so deriving the camera names from metadata['input_shapes'] fed the NARROW
+    # camera and its warp matrix into BOTH frame slots (modeld.py maps 'big' in name -> the wide
+    # camera). The warp takes input_frame[0] = narrow, [1] = wide, exactly like the stock runner
+    # (openpilot/selfdrive/modeld/modeld.py vision_input_names = ('img', 'big_img')), so use that pair.
+    self._vision_input_names = list(self.VISION_INPUT_NAMES)
     self.vision_output_slices = pickle.loads(codecs.decode(self.jits['metadata']['metadata']['output_slices'].encode(), 'base64'))
 
     self.run_warp = self._load_warp()
