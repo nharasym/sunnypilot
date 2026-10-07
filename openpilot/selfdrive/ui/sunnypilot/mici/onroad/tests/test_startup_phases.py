@@ -42,9 +42,8 @@ class TestMilestones:
   def test_measured_boot_lights_one_segment_per_step(self):
     s = _boot(StartupPhases())
     assert [x.lit for x in s] == [0, 1, 2, 3, 4, 5, 5, 6, 7, 8, SEGMENTS]
-    assert [x.label for x in s] == ["starting cameras", "starting card", "starting selfdrived", "starting plannerd",
-                                    "starting controlsd", "starting modeld", "starting modeld", "loading big model",
-                                    "loading small model", "starting model", "ready"]
+    assert [x.label for x in s] == ["cameras", "card", "selfdrived", "plannerd", "controlsd", "modeld", "modeld",
+                                    "big model", "small model", "first frame", "ready"]
     assert all(x.mode == RailMode.STARTING for x in s[:-1])
     assert all(x.visible for x in s)                                   # the strip is drawn through the whole boot
     assert [x.elapsed_s is None for x in s] == [x.lit != BIG_MODEL_STEP for x in s]
@@ -52,15 +51,15 @@ class TestMilestones:
 
   def test_steps_table_is_consistent(self):
     assert SEGMENTS == len(STEPS) == 9 and len(set(LABELS)) == SEGMENTS   # every step reads differently, so the drum turns
-    assert LABELS[BIG_MODEL_STEP] == "loading big model"
+    assert LABELS[BIG_MODEL_STEP] == "big model"
 
   def test_a_process_that_never_starts_stalls_the_strip_on_its_name(self):
     # the r20 case: plannerd crash-looping. Later steps must not paper over the hole.
     p = StartupPhases()
     s = p.update(_in(t=6, cam=True, sd=True, running=("card", "selfdrived", "controlsd")))
-    assert s.lit == 3 and s.label == "starting plannerd" and s.mode == RailMode.STARTING
+    assert s.lit == 3 and s.label == "plannerd" and s.mode == RailMode.STARTING
     s = p.update(_in(t=15, cam=True, sd=True, loading=True, running=("card", "selfdrived", "controlsd")))
-    assert s.lit == 3 and s.label == "starting plannerd"               # modeld progressing does not hide it
+    assert s.lit == 3 and s.label == "plannerd"                        # modeld progressing does not hide it
     s = p.update(_in(t=16, cam=True, sd=True, loading=True, running=("card", "selfdrived", "controlsd"), dead="plannerd"))
     assert s.mode == RailMode.FAULT and s.label == "plannerd not running" and s.lit == 3   # amber bars show where it stopped
 
@@ -68,18 +67,18 @@ class TestMilestones:
     # maneuver / joystick dev modes swap plannerd or controlsd out: the manager lists them as neither
     # running nor expected, and the widget passes them as ok
     s = StartupPhases().update(_in(t=6, cam=True, sd=True, running=("card", "selfdrived", "plannerd", "controlsd")))
-    assert s.lit == 5 and s.label == "starting modeld"
+    assert s.lit == 5 and s.label == "modeld"
 
   def test_stronger_signals_imply_process_steps(self):
     # selfdriveState arriving proves selfdrived even if the 2 Hz manager list lags; the first big frame proves all
     s = StartupPhases().update(_in(t=6, cam=True, sd=True, running=("card", "plannerd", "controlsd")))
-    assert s.lit == 5 and s.label == "starting modeld"
+    assert s.lit == 5 and s.label == "modeld"
     # ... but a hole lower down still stops the count (consecutive, not max): card missing here
     s = StartupPhases().update(_in(t=6, cam=True, sd=True, running=("plannerd", "controlsd")))
-    assert s.lit == 1 and s.label == "starting card"
+    assert s.lit == 1 and s.label == "card"
     # the modeld step never keys on the process being up, under either runner name
     s = StartupPhases().update(_in(t=6, cam=True, sd=True, running=PROCS | {"modeld"}))
-    assert s.lit == 5 and s.label == "starting modeld" and s.elapsed_s is None
+    assert s.lit == 5 and s.label == "modeld" and s.elapsed_s is None
     s = StartupPhases().update(_in(t=40, cam=True, big=True, running=()))
     assert s.mode == RailMode.READY and s.lit == SEGMENTS
 
