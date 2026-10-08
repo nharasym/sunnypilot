@@ -5,7 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
-  SEGMENTS, LABELS, STEPS, BIG_MODEL_STEP, READY_HOLD_S, READY_WORD_S, MODEL_NAME_S, FAILED_HOLD_S,
+  SEGMENTS, LABELS, STEPS, BIG_MODEL_STEP, READY_HOLD_S, READY_WORD_S, MODEL_NAME_S, MODEL_TAGS, FAILED_HOLD_S,
   DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE, CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
   short_model_name,
 )
@@ -246,8 +246,8 @@ class TestReadyNamesTheModels:
     _, at = self._ready_at(0)
     assert at(0.0).label == "ready" and at(0.0).visible
     assert at(READY_WORD_S - 0.05).label == "ready"
-    assert at(READY_WORD_S + 0.05).label == "Cinque Terre V2"
-    assert at(READY_WORD_S + MODEL_NAME_S + 0.05).label == "Terrible Super Fantastic Do Over"
+    assert at(READY_WORD_S + 0.05).label == "big Cinque Terre V2"
+    assert at(READY_WORD_S + MODEL_NAME_S + 0.05).label == "small Terrible Super Fantastic Do Over"
     s = at(READY_WORD_S + 2 * MODEL_NAME_S - 0.05)
     assert s.visible and s.mode == RailMode.READY
     assert not at(READY_WORD_S + 2 * MODEL_NAME_S + 0.05).visible
@@ -264,5 +264,25 @@ class TestReadyNamesTheModels:
     _boot(p)
     def at(dt):
       return p.update(_in(t=37.1 + dt, cam=True, sd=True, active=True, big=True, names=(self.BIG,)))
-    assert at(READY_WORD_S + 0.5).label == "Cinque Terre V2"
+    assert at(READY_WORD_S + 0.5).label == "big Cinque Terre V2"
     assert not at(READY_WORD_S + MODEL_NAME_S + 0.05).visible
+
+  def test_only_small_model_known_keeps_its_tag(self):
+    # the slot is positional: an empty big slot must not promote the small name to "big"
+    p = StartupPhases()
+    _boot(p)
+    def at(dt):
+      return p.update(_in(t=37.1 + dt, cam=True, sd=True, active=True, big=True, names=("", self.SMALL)))
+    assert at(0.0).label == "ready"
+    assert at(READY_WORD_S + 0.5).label == "small Terrible Super Fantastic Do Over"
+    assert not at(READY_WORD_S + MODEL_NAME_S + 0.05).visible
+
+  def test_tags_cover_both_slots_and_nothing_else(self):
+    assert MODEL_TAGS == ("big", "small")
+    p = StartupPhases()
+    _boot(p)
+    # a third name has no slot and is never shown; the drum still fades after the two it has
+    def at(dt):
+      return p.update(_in(t=37.1 + dt, cam=True, sd=True, active=True, big=True, names=(self.BIG, self.SMALL, "Extra Model")))
+    assert at(READY_WORD_S + 2 * MODEL_NAME_S - 0.05).label == "small Terrible Super Fantastic Do Over"
+    assert not at(READY_WORD_S + 2 * MODEL_NAME_S + 0.05).visible
