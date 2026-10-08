@@ -48,6 +48,7 @@ STEP_PROCESSES = {"card": ("card",), "selfdrived": ("selfdrived",), "plannerd": 
 READY_HOLD_S = 2.5     # how long the green "ready" stays before fading when no model names are known
 READY_WORD_S = 2.0     # with model names: "ready" first, then the drum turns through the loaded models
 MODEL_NAME_S = 2.0     # ... each model name this long, then the rail fades
+MODEL_TAGS = ("big", "small")   # the drum says which slot each name fills: "big Cinque Terre V2", "small CD210"
 FAILED_HOLD_S = 5.0    # how long an amber big-model message stays before fading
 DEAD_PROCESS_DEBOUNCE_S = 0.5   # one managerState period: filters the start()->is_alive() frame of a launch
 # only processes the drive depends on are worth an amber strip for the rest of the drive (the manager
@@ -101,7 +102,8 @@ class RailInputs:
   model_small_seen: bool = False  # a modelV2 frame with big=False arrived this session
   chestnut_uncompiled: bool = False  # dock present but no compiled big model
   dead_process: str | None = None  # a process that should be running but is not (debounced)
-  model_names: tuple[str, ...] = ()  # loaded models (big first), shown on the drum after "ready"
+  model_names: tuple[str, ...] = ()  # (big, small) display names, "" for an unknown slot; the drum shows
+                                     # "big <name>" then "small <name>" after "ready"
   procs_ok: frozenset[str] = frozenset()  # manager process names running, or not scheduled this session (dev modes
                                           # swap plannerd/controlsd out; an unscheduled step must not stall the strip)
 
@@ -209,7 +211,7 @@ class StartupPhases:
     if lit >= SEGMENTS:
       # "ready", then the drum turns through the loaded models (this replaced the Ready To Drive
       # pop-up's model list, 2026-10-05), then the rail fades
-      names = tuple(n for n in (short_model_name(m) for m in i.model_names) if n)
+      names = tuple(f"{tag} {name}" for tag, name in zip(MODEL_TAGS, map(short_model_name, i.model_names), strict=False) if name)
       if not names:
         return RailState(RailMode.READY, lit, "ready", None, self._hold("_ready_t", i.t, READY_HOLD_S))
       visible = self._hold("_ready_t", i.t, READY_WORD_S + MODEL_NAME_S * len(names))
