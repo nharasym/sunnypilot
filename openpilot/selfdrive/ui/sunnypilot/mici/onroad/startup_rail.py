@@ -7,7 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
 lights one rounded segment per boot step (processes and model loads) and names the step in progress beside it,
 rotated to read top-to-bottom. Turns green with a bigger "ready" once the big model is live on
-the eGPU, then turns the drum through the loaded model names, then fades. Amber for a failed big model or a dead process.
+the eGPU, then turns the drum through the loaded model names tagged "big"/"small", then fades. Amber for a failed big model or a dead process.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
 
 Draws only inside the 60 px side panel (outside the camera scissor), so it can never cover an
@@ -81,19 +81,21 @@ class StartupRail(Widget):
     self._label_t = 0.0
 
   @staticmethod
-  def _read_model_names() -> tuple[str, ...]:
-    """Big then small display names of the active bundles. Read once per session at the ready
-    edge (two small param reads, never per frame); never raises inside the render loop."""
-    names = []
-    try:
-      from openpilot.sunnypilot.models.helpers import get_active_bundle
-      for chestnut in (True, False):
+  def _read_model_names() -> tuple[str, str]:
+    """(big, small) display names of the active bundles, "" for a slot with no bundle: the
+    position is what the drum tags "big"/"small", so a missing big model must not promote the
+    small one. Read once per session at the ready edge (two small param reads, never per
+    frame); never raises inside the render loop."""
+    names = ["", ""]
+    for slot, chestnut in enumerate((True, False)):
+      try:
+        from openpilot.sunnypilot.models.helpers import get_active_bundle
         b = get_active_bundle(ui_state.params, chestnut=chestnut)
         if b is not None and b.displayName:
-          names.append(str(b.displayName))
-    except Exception:
-      pass
-    return tuple(names)
+          names[slot] = str(b.displayName)
+      except Exception:
+        pass
+    return names[0], names[1]
 
   def _inputs(self, t: float) -> RailInputs:
     sm = ui_state.sm
@@ -139,7 +141,8 @@ class StartupRail(Widget):
     # layout iteration on the device without a car: walk every look, 2 s each
     steps = [RailState(RailMode.STARTING, n, LABELS[n], (t % 2.0) * 9 if n == BIG_MODEL_STEP else None, True) for n in range(SEGMENTS)]
     steps += [RailState(RailMode.READY, SEGMENTS, "ready", None, True),
-              RailState(RailMode.READY, SEGMENTS, "Cinque Terre V2", None, True),
+              RailState(RailMode.READY, SEGMENTS, "big Cinque Terre V2", None, True),     # the real drum's labels, tag included,
+              RailState(RailMode.READY, SEGMENTS, "small CD210", None, True),            # so the fit-to-panel shrink is on show
               RailState(RailMode.FAULT, SEGMENTS, "dmonitoringmodeld not running", None, True),
               RailState(RailMode.FAILED, SEGMENTS, "big model failed", None, True)]
     return steps[int(t / 2.0) % len(steps)]
