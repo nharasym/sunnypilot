@@ -271,6 +271,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
     // HL-FEAT(cruise-accel-scale): cruise-candidate accel ceiling + ramp dial, acc mode only (brake floor unscaled); 1.0 == upstream
     {"CruiseAccelScale", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
+    // HL-FIX(audio-retry): soundd is still retrying the speaker past upstream's 30 s budget; selfdrived warns
+    {"AudioUnavailable", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
 
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},

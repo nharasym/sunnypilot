@@ -355,6 +355,7 @@ struct OnroadEventSP @0xda96579883444c35 {
     laneChangeRoadEdge @24;
     bigModelReady @25;
     bsmApproaching @26;
+    audioUnavailable @27;  # HL-FIX(audio-retry)
   }
 }
 
