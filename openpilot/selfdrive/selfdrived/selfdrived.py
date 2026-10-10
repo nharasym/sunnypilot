@@ -116,6 +116,7 @@ class SelfdriveD:
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
     self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
+    self.audio_unavailable = False  # HL-FIX(audio-retry): set by soundd, read in params_thread
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -189,6 +190,10 @@ class SelfdriveD:
     if self.sm['controlsState'].lateralControlState.which() == 'debugState':
       self.events.add(EventName.joystickDebug)
       self.startup_event = None
+
+    # HL-FIX(audio-retry): soundd is still retrying the speaker past upstream's budget: alerts are silent
+    if self.audio_unavailable:
+      self.events_sp.add(custom.OnroadEventSP.EventName.audioUnavailable)
 
     loading = self.params.get_bool("ChestnutLoading")
     if self.big_model_loading and not loading:
@@ -664,6 +669,7 @@ class SelfdriveD:
       self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
       self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
       self.personality = self.params.get("LongitudinalPersonality", return_default=True)
+      self.audio_unavailable = self.params.get_bool("AudioUnavailable")  # HL-FIX(audio-retry)
 
       self.mads.read_params()
       time.sleep(0.1)
