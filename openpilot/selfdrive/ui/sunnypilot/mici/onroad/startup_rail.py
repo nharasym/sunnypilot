@@ -5,9 +5,10 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
 HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
-lights one rounded segment per boot step (processes and model loads) and names the step in progress beside it,
-rotated to read top-to-bottom. Turns green with a bigger "ready" once the big model is live on
-the eGPU, then turns the drum through the loaded model names tagged "big"/"small", then fades. Amber for a failed big model or a dead process.
+lights one rounded segment per boot step (processes, model loads, then micd and soundd) and names the step in
+progress beside it, rotated to read top-to-bottom. Turns green with a bigger "ready" once the models are live and
+the speaker is open, then turns the drum through the loaded model names tagged "big"/"small", then fades. Amber for
+a failed big model or a dead process. r42: shown without the eGPU dock too, with the small model as the long step.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
 
 Draws only inside the 60 px side panel (outside the camera scissor), so it can never cover an
@@ -21,7 +22,8 @@ from openpilot.cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
-  SEGMENTS, LABELS, BIG_MODEL_STEP, DeadProcessTracker, RailInputs, RailMode, RailState, StartupPhases,
+  STEPS, STEPS_NO_DOCK, TIMED_STEPS, DeadProcessTracker, RailInputs, RailMode, RailState, StartupPhases,
+  audio_streams_running,
 )
 from openpilot.selfdrive.ui.ui_state import ChestnutState, UIStatus, ui_state
 from openpilot.system.ui.lib.application import FONT_SCALE, FontWeight, gui_app
@@ -40,6 +42,7 @@ _MARGIN_Y = 12
 _GAP = 6
 # text band is [panel.x + _BAND_X, col_x); the rotated glyph box is size * FONT_SCALE wide
 _BAND_X = 4
+_AUDIO_POLL_S = 0.5        # /proc/asound reads while the audio steps are still dark; none after both are seen
 
 _COLOR_UNLIT = rl.Color(50, 50, 50, 255)
 _COLOR_LIT = rl.Color(255, 255, 255, 255)
@@ -67,6 +70,8 @@ class StartupRail(Widget):
     self._prev_label = ""
     self._label_t = 0.0
     self._started_frame_seen = -1
+    self._audio = (False, False)
+    self._audio_poll_t = 0.0
 
   # ---- inputs ----
 
@@ -76,18 +81,23 @@ class StartupRail(Widget):
     self._dead_name = None
     self._procs_ok = frozenset()
     self._model_names = None
+    self._audio = (False, False)
+    self._audio_poll_t = 0.0
     self._alpha.x = 0.0
     self._label = self._prev_label = ""
     self._label_t = 0.0
 
   @staticmethod
-  def _read_model_names() -> tuple[str, str]:
+  def _read_model_names(dock: bool = True) -> tuple[str, str]:
     """(big, small) display names of the active bundles, "" for a slot with no bundle: the
     position is what the drum tags "big"/"small", so a missing big model must not promote the
-    small one. Read once per session at the ready edge (two small param reads, never per
-    frame); never raises inside the render loop."""
+    small one. Without the dock the big slot stays empty: the selected big bundle is not running.
+    Read once per session at the first model frame (two small param reads, never per frame);
+    never raises inside the render loop."""
     names = ["", ""]
     for slot, chestnut in enumerate((True, False)):
+      if chestnut and not dock:
+        continue
       try:
         from openpilot.sunnypilot.models.helpers import get_active_bundle
         b = get_active_bundle(ui_state.params, chestnut=chestnut)
@@ -118,8 +128,13 @@ class StartupRail(Widget):
                                             any(e.name == EventName.bigModelLoading for e in sm['onroadEvents']))
     model_seen = rf.get('modelV2', 0) > sf
     big = bool(sm['modelV2'].big)
-    if model_seen and big and self._model_names is None:
-      self._model_names = self._read_model_names()
+    if model_seen and (big or not ui_state.chestnut_present) and self._model_names is None:
+      # a big frame proves the big model runs even if the dock enumerated after the onroad edge
+      self._model_names = self._read_model_names(ui_state.chestnut_present or big)
+    if not all(self._audio) and t - self._audio_poll_t >= _AUDIO_POLL_S:
+      self._audio_poll_t = t
+      mic, spk = audio_streams_running()
+      self._audio = (self._audio[0] or mic, self._audio[1] or spk)
     return RailInputs(
       t=t,
       started=ui_state.started,
@@ -135,17 +150,24 @@ class StartupRail(Widget):
       dead_process=self._dead_name,
       procs_ok=self._procs_ok,
       model_names=self._model_names or (),
+      mic_running=self._audio[0],
+      speaker_running=self._audio[1],
     )
 
   def _demo_state(self, t: float) -> RailState:
-    # layout iteration on the device without a car: walk every look, 2 s each
-    steps = [RailState(RailMode.STARTING, n, LABELS[n], (t % 2.0) * 9 if n == BIG_MODEL_STEP else None, True) for n in range(SEGMENTS)]
-    steps += [RailState(RailMode.READY, SEGMENTS, "ready", None, True),
-              RailState(RailMode.READY, SEGMENTS, "big Cinque Terre V2", None, True),     # the real drum's labels, tag included,
-              RailState(RailMode.READY, SEGMENTS, "small CD210", None, True),            # so the fit-to-panel shrink is on show
-              RailState(RailMode.FAULT, SEGMENTS, "dmonitoringmodeld not running", None, True),
-              RailState(RailMode.FAILED, SEGMENTS, "big model failed", None, True)]
-    return steps[int(t / 2.0) % len(steps)]
+    # layout iteration on the device without a car: walk every look of both step lists, 2 s each
+    looks = []
+    for steps in (STEPS, STEPS_NO_DOCK):
+      n = len(steps)
+      looks += [RailState(RailMode.STARTING, k, label, (t % 2.0) * 9 if key in TIMED_STEPS[id(steps)] else None, True, n)
+                for k, (key, label) in enumerate(steps)]
+      looks += [RailState(RailMode.READY, n, "ready", None, True, n)]
+    n = len(STEPS)
+    looks += [RailState(RailMode.READY, n, "big Cinque Terre V2", None, True, n),     # the real drum's labels, tag included,
+              RailState(RailMode.READY, n, "small CD210", None, True, n),            # so the fit-to-panel shrink is on show
+              RailState(RailMode.FAULT, n, "dmonitoringmodeld not running", None, True, n),
+              RailState(RailMode.FAILED, n, "big model failed", None, True, n)]
+    return looks[int(t / 2.0) % len(looks)]
 
   def _update_state(self) -> None:
     t = rl.get_time()
@@ -180,9 +202,10 @@ class StartupRail(Widget):
 
     # segments, bottom to top
     col_x = panel.x + panel.width - _GUTTER - _COL_W
-    seg_h = (panel.height - 2 * _MARGIN_Y - (SEGMENTS - 1) * _GAP) / SEGMENTS
+    segments = max(1, self._state.segments)
+    seg_h = (panel.height - 2 * _MARGIN_Y - (segments - 1) * _GAP) / segments
     pulse = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * 6.0))
-    for n in range(SEGMENTS):
+    for n in range(segments):
       y = panel.y + panel.height - _MARGIN_Y - (n + 1) * seg_h - n * _GAP
       seg = rl.Rectangle(col_x, y, _COL_W, seg_h)
       if n < self._state.lit:
