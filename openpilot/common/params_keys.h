@@ -276,6 +276,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // HL-FEAT(stock-hud-lat-off): Toyota cluster mirrors stock-LTA-off while lateral is off; default ON
     {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
 
+    // HL-FIX(audio-retry): soundd is still retrying the speaker past upstream's 30 s budget; selfdrived warns
+    {"AudioUnavailable", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
+
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},
     {"Mapd_ClearCache", {CLEAR_ON_MANAGER_START, BOOL}},
