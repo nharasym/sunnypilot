@@ -8,7 +8,6 @@ from openpilot.cereal import log, messaging, custom
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import Ratekeeper
-from openpilot.common.utils import retry
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.system import micd
@@ -22,6 +21,7 @@ MAX_VOLUME = 1.0
 MIN_VOLUME = 0.1
 ALERT_RAMP_TIME = 4 # seconds to ramp to max volume for warningImmediate
 SELFDRIVE_STATE_TIMEOUT = 5 # 5 seconds
+MIC_STALE_S = 5. # HL-FIX(audio-retry): no mic level this long after the speaker opened -> alerts at full volume
 FILTER_DT = 1. / (micd.SAMPLE_RATE / micd.FFT_SAMPLES)
 
 AMBIENT_DB = 26 # DB where MIN_VOLUME is applied
@@ -168,12 +168,21 @@ class Soundd(QuietMode):
     volume = ((weighted_db - AMBIENT_DB) / DB_SCALE) * (MAX_VOLUME - MIN_VOLUME) + MIN_VOLUME
     return math.pow(VOLUME_BASE, (np.clip(volume, MIN_VOLUME, MAX_VOLUME) - 1))
 
-  @retry(attempts=10, delay=3)
   def get_stream(self, sd):
-    # reload sounddevice to reinitialize portaudio
-    sd._terminate()
-    sd._initialize()
-    return sd.OutputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER)
+    micd.reinit_portaudio(sd)
+    return micd.start_stream(sd.OutputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER))
+
+  def flag_audio_unavailable(self) -> None:
+    # HL-FIX(audio-retry): selfdrived shows "Audio Unavailable" while this is set. Called on every retry
+    # past upstream's budget, so it is re-asserted if an onroad transition clears it mid-retry.
+    # blocking write: a queued write landing after the remove below would leave a false warning up all drive
+    if not self.params.get_bool("AudioUnavailable"):
+      self.params.put_bool("AudioUnavailable", True, block=True)
+
+  def mic_silent(self, sm, now: float) -> bool:
+    # HL-FIX(audio-retry): micd now keeps retrying instead of exiting, so a dead mic no longer blocks
+    # engagement; without its level the volume would sit at MIN_VOLUME (0.1) for every alert
+    return now - max(sm.recv_time['soundPressure'], self.stream_open_t) > MIC_STALE_S
 
   def soundd_thread(self):
     # sounddevice must be imported after forking processes
@@ -182,7 +191,9 @@ class Soundd(QuietMode):
 
     sm = messaging.SubMaster(['selfdriveState', 'selfdriveStateSP', 'soundPressure'])
 
-    with self.get_stream(sd) as stream:
+    with micd.open_stream_retrying(lambda: self.get_stream(sd), "soundd", self.flag_audio_unavailable) as stream:
+      self.params.remove("AudioUnavailable")
+      self.stream_open_t = time.monotonic()
       rk = Ratekeeper(20)
 
       cloudlog.info(f"soundd stream started: {stream.samplerate=} {stream.channels=} {stream.dtype=} {stream.device=}, {stream.blocksize=}")
@@ -196,6 +207,8 @@ class Soundd(QuietMode):
           self.spl_filter_weighted.update(sm["soundPressure"].soundPressureWeightedDb)
           if self.current_alert == AudibleAlert.none:
             self.current_volume = self.calculate_volume(float(self.spl_filter_weighted.x))
+        elif self.current_alert == AudibleAlert.none and self.mic_silent(sm, time.monotonic()):
+          self.current_volume = MAX_VOLUME
 
         self.get_audible_alert(sm)
 

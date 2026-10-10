@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import numpy as np
+from collections.abc import Callable
 from functools import cache
 import threading
+import time
 
 from openpilot.cereal import messaging
 from openpilot.common.realtime import Ratekeeper
-from openpilot.common.utils import retry
 from openpilot.common.swaglog import cloudlog
 
 RATE = 10
@@ -13,6 +14,61 @@ FFT_SAMPLES = 1600 # 100ms
 REFERENCE_SPL = 2e-5  # newtons/m^2
 SAMPLE_RATE = 16000
 SAMPLE_BUFFER = 800  # 50ms
+
+
+# HL-FIX(audio-retry): keep retrying the audio device instead of exiting. On the comma four the audio
+# DSP comes up 38-53 s into a boot: sound card ready at 38-46 s with the eGPU dock, ~52 s without it
+# (2026-10-09, routes 106-10c). Upstream retried 10 x 3 s from process start (20-27 s) and then exited,
+# and the manager never restarts a process while onroad, so a boot without the dock missed the audio
+# by 1-3 s and "process not running" blocked engagement for the whole drive (a dock boot had ~3 s of
+# margin). Past upstream's budget the caller is told the audio is unavailable (soundd raises a visible
+# warning), and the retries go on, so the stream opens as soon as the DSP is up.
+STREAM_RETRY_DELAY_S = 3.
+STREAM_UNAVAILABLE_ATTEMPTS = 10  # upstream's whole budget: still failing after this many is "unavailable"
+
+
+def open_stream_retrying(open_fn: Callable, name: str, on_unavailable: Callable[[], None] | None = None,
+                         sleep: Callable[[float], None] = time.sleep):
+  """Return open_fn()'s stream, retrying every STREAM_RETRY_DELAY_S until it opens. Only Exception is
+  caught, so the manager's SIGINT (KeyboardInterrupt) still stops the process mid-retry."""
+  attempts = 0
+  while True:
+    try:
+      stream = open_fn()
+    except Exception:
+      attempts += 1
+      if attempts == STREAM_UNAVAILABLE_ATTEMPTS:
+        cloudlog.exception(f"{name}: audio device unavailable after {attempts} attempts, still retrying every {STREAM_RETRY_DELAY_S:g} s")
+      if attempts >= STREAM_UNAVAILABLE_ATTEMPTS and on_unavailable is not None:
+        try:
+          on_unavailable()
+        except Exception:
+          cloudlog.exception(f"{name}: audio-unavailable callback failed")
+      sleep(STREAM_RETRY_DELAY_S)
+      continue
+    if attempts:
+      cloudlog.warning(f"{name}: audio device opened after {attempts} failed attempts")
+    return stream
+
+
+def reinit_portaudio(sd) -> None:
+  # reload sounddevice to reinitialize portaudio. HL-FIX(audio-retry): terminate only an initialized
+  # PortAudio: after a failed _initialize, _terminate raises "PortAudio not initialized" and every later
+  # retry would fail there without ever reinitializing (harmless upstream, which gave up after 30 s).
+  if getattr(sd, "_initialized", 1):
+    sd._terminate()
+  sd._initialize()
+
+
+def start_stream(stream):
+  """HL-FIX(audio-retry): start the stream inside the retried call. `with stream:` starts it again, which
+  sounddevice treats as a no-op, but a start failure there would escape the retry and kill the process."""
+  try:
+    stream.start()
+  except Exception:
+    stream.close()
+    raise
+  return stream
 
 
 def patch_sounddevice(sd):
@@ -102,19 +158,16 @@ class Mic:
 
         self.measurements = self.measurements[FFT_SAMPLES:]
 
-  @retry(attempts=10, delay=3)
   def get_stream(self, sd):
-    # reload sounddevice to reinitialize portaudio
-    sd._terminate()
-    sd._initialize()
-    return sd.InputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER)
+    reinit_portaudio(sd)
+    return start_stream(sd.InputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER))
 
   def micd_thread(self):
     # sounddevice must be imported after forking processes
     import sounddevice as sd
     patch_sounddevice(sd)
 
-    with self.get_stream(sd) as stream:
+    with open_stream_retrying(lambda: self.get_stream(sd), "micd") as stream:
       cloudlog.info(f"micd stream started: {stream.samplerate=} {stream.channels=} {stream.dtype=} {stream.device=}, {stream.blocksize=}")
       while True:
         self.update()

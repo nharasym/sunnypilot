@@ -280,4 +280,13 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       AlertStatus.userPrompt, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlertSP.promptSingleHigh, 0.1),
   },
+
+  # HL-FIX(audio-retry): soundd has not opened the speaker within upstream's 30 s budget and is still
+  # retrying (it normally recovers seconds later: the comma four's audio comes up ~52 s into a boot
+  # without the eGPU dock). Upstream exited at this point and "process not running" blocked engagement;
+  # now engagement is allowed and the driver is told alerts are silent until the speaker opens.
+  # ET.PERMANENT so it shows engaged or not; deliberately no NO_ENTRY.
+  EventNameSP.audioUnavailable: {
+    ET.PERMANENT: NormalPermanentAlert("Audio Unavailable", "Alerts are silent"),
+  },
 }
