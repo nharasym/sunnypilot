@@ -7,6 +7,11 @@ See the LICENSE.md file in the root directory for more details.
 HL-FEAT(startup-rail): the state behind the onroad startup rail. Pure Python on purpose:
 no pyray, no ui_state, no cereal, so it runs under pytest on the Mac and on the device.
 
+r42: two step lists, chosen once per drive from the dock state latched at ignition. With the eGPU
+dock the rail narrates the big-model load; without it the small model is the long step. Both end
+on the audio: micd and soundd light when the kernel reports their capture / playback stream
+running, which on this device comes 38-55 s into a boot (HL-FIX(audio-retry), 2026-10-09).
+
 Six segments, each a REAL milestone of this device's boot (measured on routes 000000f0/ed,
 seconds after ignition): cameras up ~1 s, selfdrived up ~6 s, modeld's main loop ~15-18 s,
 big model loaded on the eGPU ~34-37 s, small model loaded ~37-40 s, first big-model frame
@@ -17,30 +22,45 @@ The rail doubles as a health strip: a process the manager expects to be running 
 is not shows "<name> not running" in the fault colour. The manager in this tree does not
 restart a crashed onroad process, so that normally stays up until the next ignition.
 """
+import glob
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 # the steps, in boot order. Process steps light when the manager reports that process running this
 # session (or not scheduled at all, e.g. maneuver/joystick dev modes); the processes themselves come up within ~2 s on this device, so on a good boot they are
 # already lit when the camera page appears. They are here because they have failed before (r20:
 # plannerd crash-looped): the strip then stalls on "starting plannerd" and goes amber.
-STEPS = (
+PROCESS_STEPS = (
   ("cameras", "cameras"),
   ("card", "card"),
   ("selfdrived", "selfdrived"),
   ("plannerd", "plannerd"),
   ("controlsd", "controlsd"),
+)
+# the audio comes last on this device: the DSP is usable 38-55 s into a boot, after the models
+AUDIO_STEPS = (
+  ("micd", "micd"),                       # capture stream running (micd opened the mic)
+  ("soundd", "soundd"),                   # playback stream running (soundd opened the speaker): alerts are audible
+)
+STEPS = PROCESS_STEPS + (                 # with the eGPU dock
   ("modeld", "modeld"),                   # modeld's main loop, i.e. the ChestnutLoading / bigModelLoading edge
   ("bigmodel", "big model"),              # the long one: big model into the eGPU, ~20 s (elapsed counter shown)
   ("smallmodel", "small model"),
   ("model", "first frame"),               # both models in; waiting for the first big-model frame
-)
+) + AUDIO_STEPS
+STEPS_NO_DOCK = PROCESS_STEPS + (         # without it: modeld loads only the small model
+  ("smallmodel", "small model"),          # modeld up to its first small-model frame (elapsed counter shown)
+) + AUDIO_STEPS
+MODEL_CHAIN = frozenset(k for k, _ in STEPS if k not in {a for a, _ in AUDIO_STEPS})
+# steps that can take tens of seconds show an elapsed counter beside the label
+TIMED_STEPS = {id(STEPS): frozenset({"bigmodel", "micd", "soundd"}),
+               id(STEPS_NO_DOCK): frozenset({"smallmodel", "micd", "soundd"})}
 # labels are bare names: the breathing segment already says "in progress", and short words let the
 # rotated text run at 26 px inside the 240 px panel (road test 2026-10-07: verbs made it unreadable)
 SEGMENTS = len(STEPS)
 LABELS = tuple(label for _, label in STEPS)
-BIG_MODEL_STEP = [k for k, _ in STEPS].index("bigmodel")   # the lit count during which the elapsed counter shows
+BIG_MODEL_STEP = [k for k, _ in STEPS].index("bigmodel")   # the lit count during which the big-model counter shows
 # manager process names per process step. The modeld step is deliberately NOT here: its process is
 # up at +1.2 s but its main loop (the python/tinygrad import) takes until +15-18 s, which is what
 # "starting modeld" should narrate, so that step keys on the loading edge below.
@@ -59,6 +79,8 @@ CRITICAL_PROCESSES: dict[str, str] = {
   "modeld": "modeld", "modeld_tinygrad": "modeld", "dmonitoringmodeld": "dmonitoringd", "dmonitoringd": "dmonitoringd",
   "selfdrived": "selfdrived", "controlsd": "controlsd", "plannerd": "plannerd", "radard": "radard",
   "locationd": "locationd", "calibrationd": "calibrationd", "paramsd": "paramsd", "torqued": "torqued", "lagd": "lagd",
+  # a dead micd/soundd raises processNotRunning too, which blocks engagement for the drive
+  "micd": "micd", "soundd": "soundd",
 }
 
 # GPU badge look per ui_state.ChestnutState value, kept here (pure) so it is testable and never
@@ -72,6 +94,30 @@ BADGE_STYLE: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], bool]] 
 }
 
 
+_PCM_STATUS = re.compile(r"/pcm\d+([pc])/sub\d+/status$")
+
+
+def audio_streams_running(root: str = "/proc/asound") -> tuple[bool, bool]:
+  """(capture, playback): whether any ALSA capture / playback substream is RUNNING, i.e. micd / soundd
+  hold an open, started stream. The kernel's own state, so it is right after a UI restart too. Never
+  raises: no /proc (PC, tests) reads as nothing running."""
+  capture = playback = False
+  for path in glob.glob(f"{root}/card*/pcm*/sub*/status"):
+    m = _PCM_STATUS.search(path)
+    if m is None:
+      continue
+    try:
+      with open(path) as f:
+        running = "RUNNING" in f.read()
+    except OSError:
+      continue
+    if running and m.group(1) == "c":
+      capture = True
+    elif running:
+      playback = True
+  return capture, playback
+
+
 def short_model_name(display_name: str) -> str:
   """'Cinque Terre Model V2 (September 08, 2026)' -> 'Cinque Terre V2': the date and the word
   'Model' carry nothing in a 240 px rotated label."""
@@ -81,7 +127,7 @@ def short_model_name(display_name: str) -> str:
 
 
 class RailMode(Enum):
-  HIDDEN = "hidden"       # offroad, no dock: draw nothing, forget everything
+  HIDDEN = "hidden"       # offroad: draw nothing, forget everything
   STARTING = "starting"
   READY = "ready"
   FAILED = "failed"       # big model failed, not compiled, or never attempted
@@ -106,6 +152,8 @@ class RailInputs:
                                      # "big <name>" then "small <name>" after "ready"
   procs_ok: frozenset[str] = frozenset()  # manager process names running, or not scheduled this session (dev modes
                                           # swap plannerd/controlsd out; an unscheduled step must not stall the strip)
+  mic_running: bool = False               # an ALSA capture stream is running (micd)
+  speaker_running: bool = False           # an ALSA playback stream is running (soundd)
 
 
 @dataclass(frozen=True)
@@ -113,8 +161,9 @@ class RailState:
   mode: RailMode
   lit: int                        # segments lit, 0..SEGMENTS
   label: str
-  elapsed_s: float | None         # seconds spent in the current step, only for the big-model load
+  elapsed_s: float | None         # seconds spent in the current step, only for the long steps (TIMED_STEPS)
   visible: bool                   # draw it (before the widget's own fade)
+  segments: int = field(default=SEGMENTS)   # how many segments this drive's step list has
 
 
 class DeadProcessTracker:
@@ -140,6 +189,7 @@ class DeadProcessTracker:
 
 class StartupPhases:
   def __init__(self):
+    self._segments = SEGMENTS   # survives reset(): the fade-out after ignition-off draws this drive's count
     self.reset()
 
   def reset(self) -> None:
@@ -174,19 +224,27 @@ class StartupPhases:
       if not i.big_model_loading:
         done |= {"bigmodel", "smallmodel"}   # loading ended: the big model is in and the small one too
     if i.model_big_seen:
-      done |= {k for k, _ in STEPS}        # the first big frame proves the whole chain
+      done |= MODEL_CHAIN                  # the first big frame proves the model chain (not the audio)
+    if i.model_small_seen and not i.chestnut_present:
+      done |= {k for k, _ in PROCESS_STEPS} | {"smallmodel"}   # no dock: the first small frame proves the chain
+    if i.mic_running:
+      done.add("micd")
+    if i.speaker_running:
+      done.add("soundd")
     return done
 
   def update(self, i: RailInputs) -> RailState:
-    if not i.started or not i.chestnut_present:
+    if not i.started:
       self.reset()
-      return RailState(RailMode.HIDDEN, 0, "", None, False)
+      return RailState(RailMode.HIDDEN, 0, "", None, False, self._segments)
+    steps = STEPS if i.chestnut_present else STEPS_NO_DOCK
+    n = self._segments = len(steps)
 
     # milestones latch: a stale or missing message never un-lights a segment. lit counts the steps
     # satisfied in ORDER from the bottom, so a step that never happens stalls the strip on its label.
     self._done |= self._satisfied_now(i)
     lit = 0
-    for key, _ in STEPS:
+    for key, _ in steps:
       if key not in self._done:
         break
       lit += 1
@@ -199,25 +257,27 @@ class StartupPhases:
     if i.dead_process:
       self._ready_t = None       # re-arm the ready hold in case it ever comes back
       self._failed_t = None
-      return RailState(RailMode.FAULT, lit, f"{i.dead_process} not running", None, True)
+      return RailState(RailMode.FAULT, lit, f"{i.dead_process} not running", None, True, n)
 
-    # the big model failing, not being compiled, or never being attempted beats the milestones
-    if i.chestnut_failed or (self._loading_seen and i.chestnut_active is False):
-      return RailState(RailMode.FAILED, lit, "big model failed", None, self._hold("_failed_t", i.t, FAILED_HOLD_S))
-    if i.chestnut_uncompiled or (i.model_small_seen and not self._loading_seen):
-      return RailState(RailMode.FAILED, lit, "big model not loaded", None, self._hold("_failed_t", i.t, FAILED_HOLD_S))
+    # with the dock: the big model failing, not being compiled, or never being attempted beats the milestones
+    if i.chestnut_present:
+      if i.chestnut_failed or (self._loading_seen and i.chestnut_active is False):
+        return RailState(RailMode.FAILED, lit, "big model failed", None, self._hold("_failed_t", i.t, FAILED_HOLD_S), n)
+      if i.chestnut_uncompiled or (i.model_small_seen and not self._loading_seen):
+        return RailState(RailMode.FAILED, lit, "big model not loaded", None, self._hold("_failed_t", i.t, FAILED_HOLD_S), n)
     self._failed_t = None
 
-    if lit >= SEGMENTS:
+    if lit >= n:
       # "ready", then the drum turns through the loaded models (this replaced the Ready To Drive
       # pop-up's model list, 2026-10-05), then the rail fades
       names = tuple(f"{tag} {name}" for tag, name in zip(MODEL_TAGS, map(short_model_name, i.model_names), strict=False) if name)
       if not names:
-        return RailState(RailMode.READY, lit, "ready", None, self._hold("_ready_t", i.t, READY_HOLD_S))
+        return RailState(RailMode.READY, lit, "ready", None, self._hold("_ready_t", i.t, READY_HOLD_S), n)
       visible = self._hold("_ready_t", i.t, READY_WORD_S + MODEL_NAME_S * len(names))
       dt = i.t - self._ready_t
       label = "ready" if dt < READY_WORD_S else names[min(len(names) - 1, int((dt - READY_WORD_S) / MODEL_NAME_S))]
-      return RailState(RailMode.READY, lit, label, None, visible)
+      return RailState(RailMode.READY, lit, label, None, visible, n)
 
-    elapsed = (i.t - self._step_t) if (lit == BIG_MODEL_STEP and self._step_t is not None) else None
-    return RailState(RailMode.STARTING, lit, LABELS[lit], elapsed, True)
+    key, label = steps[lit]
+    elapsed = (i.t - self._step_t) if (key in TIMED_STEPS[id(steps)] and self._step_t is not None) else None
+    return RailState(RailMode.STARTING, lit, label, elapsed, True, n)
