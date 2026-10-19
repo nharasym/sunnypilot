@@ -33,10 +33,14 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # (Do NOT re-derive these from hardwared.THERMAL_BANDS: those min_temp values are the
 # step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
 # thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
-_TEMP_FONT_SIZE = 26
-_TEMP_LINE_H = 28  # line advance; the scaled 26px box is ~30px tall, digits ink ~19px
+_TEMP_FONT_SIZE = 22   # r48: was 26, a notch smaller so the two lines sit tighter under the badge
+_TEMP_LINE_H = 24  # line advance; the scaled 22px box is ~25px tall, digits ink ~16px
 _GPU_AMBER_C = 85
 _GPU_RED_C = 100
+# GDDR junction runs hotter than the hotspot by design: the Oct 15-18 trip plateaued at 84-86 degC on an 8 h day
+# with the card's own alert at 95, so amber/red sit just under that (HL-FEAT(egpu-temp) r48)
+_GPU_MEM_AMBER_C = 90
+_GPU_MEM_RED_C = 95
 
 # HL-FEAT(gpu-badge): the chestnut state used to be upstream's chestnut PNG, relocated to the
 # top band and held permanently (formerly egpu-icon-persist, r17-r31). It is now a rounded word
@@ -112,7 +116,13 @@ class HudRendererSP(HudRenderer):
     right = rect.x + rect.width - 10
     y = rect.y + 40 + self._badge_h / 2 + 4
     gpu_color = self._temp_color(gpu_temp >= _GPU_AMBER_C, gpu_temp >= _GPU_RED_C)
-    self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
+    # r48: core on the left, memory on the right, "GPU 75° | 84°"; memory is 0 until its first SMU refresh
+    mem_temp = ui_state.sm['chestnutState'].memoryTempC
+    if mem_temp > 0:
+      mem_color = self._temp_color(mem_temp >= _GPU_MEM_AMBER_C, mem_temp >= _GPU_MEM_RED_C)
+      self._draw_temp_pair(right, y, "GPU", gpu_temp, gpu_color, mem_temp, mem_color)
+    else:
+      self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
 
     # hottest core, colored by the device's own verdict (see the zone note at the top).
     # Skipped while the right blind-spot indicator shows (same test it renders on, toggle
@@ -133,6 +143,20 @@ class HudRendererSP(HudRenderer):
     if critical:
       return rl.Color(255, 66, 66, 230)
     return rl.Color(255, 175, 3, 230) if hot else rl.Color(255, 255, 255, 230)
+
+  def _draw_temp_pair(self, right_x: float, y: float, label: str, left: float, left_color: rl.Color,
+                      right: float, right_color: rl.Color) -> float:
+    """HL-FEAT(egpu-temp): draw '<label> L° | R°' right-aligned at right_x (core left, memory right); returns its left edge."""
+    font, size = self._font_semi_bold, _TEMP_FONT_SIZE
+    pieces = [(f"{label} ", None), (f"{round(left)}°", left_color), (" | ", None), (f"{round(right)}°", right_color)]
+    widths = [measure_text_cached(font, t, size).x for t, _ in pieces]
+    x = right_x - sum(widths)
+    cx = x
+    for (text, color), w in zip(pieces, widths, strict=True):
+      # label and separator stay dim so the eye lands on the numbers; each value carries its own thermal color
+      rl.draw_text_ex(font, text, rl.Vector2(cx, y), size, 0, color if color is not None else rl.Color(255, 255, 255, 190))
+      cx += w
+    return x
 
   def _draw_temp(self, right_x: float, y: float, label: str, temp: float, color: rl.Color) -> float:
     """HL-FEAT(egpu-temp): draw '<label> NN°' right-aligned at right_x; returns its left edge."""
