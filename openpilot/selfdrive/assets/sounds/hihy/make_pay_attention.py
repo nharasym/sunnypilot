@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-HL-FEAT(dm-voice): builds pay_attention.wav, the spoken driver-distracted prompt ("Hey! Pay attention!").
+HL-FEAT(dm-voice): candidate builder for pay_attention.wav, the spoken driver-distracted prompt ("Hey! Pay attention!").
+
+NOTE: the clip that ships is NOT from this script. It is a zero-shot F5-TTS voice clone made from the Navi reference
+recording (single "Hey! Listen!" sample, speed 0.9, take 2 of 2026-10-18; tooling in ~/tts/navi_clone on the dev Mac,
+the reference itself is not in the repo). This script is the no-reference fallback: macOS system voices shaped to the
+same measurements.
 
 Shaped on Navi's "Hey! Listen!" (Ocarina of Time), measured from a reference recording on 2026-10-18:
 "Hey!" 0.39 s at ~550 Hz, a 0.47 s gap, "Listen!" 0.52 s at ~520 Hz (0.27 s per syllable), spectral
