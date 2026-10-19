@@ -7,7 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 import unittest
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
   SEGMENTS, LABELS, STEPS, STEPS_NO_DOCK, BIG_MODEL_STEP, READY_HOLD_S, READY_WORD_S, MODEL_NAME_S, MODEL_TAGS, FAILED_HOLD_S,
-  DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE, CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
+  DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE, HOME_BADGE_STYLE, HOME_BADGE_TEXT, CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
   audio_streams_running, short_model_name,
 )
 
@@ -400,3 +400,16 @@ class TestAudioStreamsRunning(unittest.TestCase):
 
   def test_missing_proc_never_raises(self):
     assert audio_streams_running("/nonexistent/asound") == (False, False)
+
+
+class TestHomeBadgeStyle(unittest.TestCase):
+  def test_covers_every_shown_chestnut_state_and_says_egpu(self):
+    # ui_state.ChestnutState values; disconnected is hidden on purpose, like the PNGs were
+    assert set(HOME_BADGE_STYLE) == {"loading", "ready", "active", "uncompiled", "failed"}
+    assert HOME_BADGE_TEXT == "eGPU"
+    for name, (bg, fg, breathe, bang) in HOME_BADGE_STYLE.items():
+      assert all(0 <= c <= 255 for c in bg + fg), name
+      assert breathe == (name == "loading"), name                      # only the load pulses
+      assert bang == (name in ("uncompiled", "failed")), name           # only failures get the bang
+    assert HOME_BADGE_STYLE["ready"] == HOME_BADGE_STYLE["active"]
+    assert HOME_BADGE_STYLE["uncompiled"][0] == HOME_BADGE_STYLE["failed"][0]
