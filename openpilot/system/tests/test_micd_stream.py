@@ -1,4 +1,5 @@
 # HL-FIX(audio-retry): micd/soundd keep retrying the audio device instead of exiting after 30 s
+import unittest
 from openpilot.system.micd import open_stream_retrying, reinit_portaudio, start_stream, STREAM_RETRY_DELAY_S, STREAM_UNAVAILABLE_ATTEMPTS
 
 
@@ -23,7 +24,7 @@ def _run(failures: int):
   return out, fn, sleeps, flags
 
 
-class TestOpenStreamRetrying:
+class TestOpenStreamRetrying(unittest.TestCase):
   def test_upstream_budget_is_unchanged(self):
     # the warning threshold is exactly where upstream used to give up and exit
     assert STREAM_UNAVAILABLE_ATTEMPTS == 10 and STREAM_RETRY_DELAY_S == 3.
@@ -108,7 +109,7 @@ class _FakeStream:
     self.closed = True
 
 
-class TestPortAudioReinit:
+class TestPortAudioReinit(unittest.TestCase):
   def test_initialized_portaudio_is_terminated_then_reinitialized(self):
     sd = _FakeSd(1)
     reinit_portaudio(sd)
@@ -121,7 +122,7 @@ class TestPortAudioReinit:
     assert sd.calls == ["initialize"] and sd._initialized == 1
 
 
-class TestStartStream:
+class TestStartStream(unittest.TestCase):
   def test_started_stream_is_returned_open(self):
     st = _FakeStream(start_fails=False)
     assert start_stream(st) is st and not st.closed
