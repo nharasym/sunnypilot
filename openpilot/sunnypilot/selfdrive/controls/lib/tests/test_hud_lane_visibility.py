@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import unittest
 from openpilot.sunnypilot.selfdrive.controls.lib.hud_lane_visibility import HudLaneVisibility, ON_PROB, OFF_PROB, HOLD_S
 
 
@@ -12,7 +13,7 @@ def _probs(left, right):
   return [0.0, left, right, 0.0]
 
 
-class TestHudLaneVisibility:
+class TestHudLaneVisibility(unittest.TestCase):
   def test_starts_as_outlines(self):
     h = HudLaneVisibility()
     assert (h.left, h.right) == (False, False)
