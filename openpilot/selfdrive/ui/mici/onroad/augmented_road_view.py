@@ -25,6 +25,7 @@ if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.mici.onroad.hud_renderer import HudRendererSP as HudRenderer
   from openpilot.selfdrive.ui.sunnypilot.ui_state import OnroadTimerStatus
   from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_rail import StartupRail  # HL-FEAT(startup-rail)
+  from openpilot.selfdrive.ui.sunnypilot.mici.onroad.long_indicator import LongIndicatorSP  # HL-FEAT(long-indicator-corner)
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.ExtrinsicsCalibration.Status.calibrated
@@ -178,7 +179,7 @@ class AugmentedRoadView(CameraView):
     self._navigation = NavigationPanel()
     self._model_renderer = ModelRenderer()
     self._hud_renderer = HudRenderer()
-    self._long_indicator = LongIndicator()
+    self._long_indicator = LongIndicatorSP() if gui_app.sunnypilot_ui() else LongIndicator()  # HL-FEAT(long-indicator-corner): bottom-right
     self._alert_renderer = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer()
     self._confidence_ball = ConfidenceBall()

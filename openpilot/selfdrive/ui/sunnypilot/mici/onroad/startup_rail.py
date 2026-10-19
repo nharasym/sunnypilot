@@ -244,5 +244,6 @@ class StartupRail(Widget):
     w = measure_text_cached(self._font, text, size).x
     if w > max_w:
       size = max(14, int(size * max_w / w))
-    # the drum: a positive offset enters from the right, a negative one leaves to the left
-    rl.draw_text_ex(self._font, text, rl.Vector2(x + offset, y), size, 0, color)
+      w = measure_text_cached(self._font, text, size).x
+    # centred under the bars (r48); the drum: a positive offset enters from the right, a negative one leaves left
+    rl.draw_text_ex(self._font, text, rl.Vector2(x + (max_w - w) / 2 + offset, y), size, 0, color)
