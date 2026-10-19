@@ -4,16 +4,16 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-HL-FEAT(startup-rail): a vertical strip in the right side panel of the mici onroad view that
-lights one rounded segment per boot step (processes, model loads, then micd and soundd) and names the step in
-progress beside it, rotated to read top-to-bottom. Turns green with a bigger "ready" once the models are live and
-the speaker is open, then turns the drum through the loaded model names tagged "big"/"small", then fades. Amber for
-a failed big model or a dead process. r42: shown without the eGPU dock too, with the small model as the long step.
+HL-FEAT(startup-rail): a strip across the TOP of the mici onroad view (r47; r32-r46 used the right
+side panel with rotated text, which read badly from the seat) that lights one rounded segment per boot step
+(processes, model loads, then micd and soundd) left to right and names the step in progress in plain
+horizontal text under the bars. Turns green with a bigger "ready" once the models are live and the speaker is
+open, then turns the drum through the loaded model names tagged "big"/"small", then fades. Amber for a failed
+big model or a dead process. Shown without the eGPU dock too, with the small model as the long step.
 State logic lives in startup_phases.py (pure, tested); this file only reads ui_state and draws.
-
-Draws only inside the 60 px side panel (outside the camera scissor), so it can never cover an
-alert. Hidden while the confidence ball owns the panel (anything but DISENGAGED). The bookmark
-icon, if swiped in during boot, simply draws on top of it.
+Geometry: the strip sits between the DMoji (top-left, ~52 px) and the GPU badge + temps column (top-right),
+inside the content area (left of the 60 px ball panel). It hides while an alert is up (alerts own the top
+band) and is only visible while DISENGAGED, so it never meets the set-speed readout or the long indicator.
 """
 import math
 import pyray as rl
@@ -26,7 +26,7 @@ from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
   audio_streams_running,
 )
 from openpilot.selfdrive.ui.ui_state import ChestnutState, UIStatus, ui_state
-from openpilot.system.ui.lib.application import FONT_SCALE, FontWeight, gui_app
+from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
@@ -34,14 +34,15 @@ EventName = log.OnroadEvent.EventName
 
 _LABEL_SIZE = 26           # road test 2026-10-07: 18 px was unreadable from the driver's seat
 _READY_SIZE = 30
-_LABEL_SLIDE_S = 0.3            # the drum: old label slides up and out, new one slides in from below
+_LABEL_SLIDE_S = 0.3            # the drum: old label slides left and out, new one slides in from the right
 _LABEL_SLIDE_PX = 40
-_COL_W = 14                # narrower bars buy the label a 36 px band (60 - 6 - 14 - 4)
-_GUTTER = 6
-_MARGIN_Y = 12
-_GAP = 6
-# text band is [panel.x + _BAND_X, col_x); the rotated glyph box is size * FONT_SCALE wide
-_BAND_X = 4
+# strip geometry (536 x 240 mici view): clear of the DMoji on the left and of the GPU badge + temps on the right
+_STRIP_X0 = 72             # DMoji is ~52 px wide at the left edge, plus breathing room
+_BADGE_RESERVE = 120       # GPU badge (~60 px) and the temp readout under it, right-aligned at right - 10
+_BAR_Y = 8                 # segment row: top edge, height, gap between segments
+_BAR_H = 10
+_BAR_GAP = 4
+_LABEL_Y = 22              # label top; ~26 px tall, so the strip ends well above the long indicator (y 100+)
 _AUDIO_POLL_S = 0.5        # /proc/asound reads while the audio steps are still dark; none after both are seen
 
 _COLOR_UNLIT = rl.Color(50, 50, 50, 255)
@@ -194,20 +195,23 @@ class StartupRail(Widget):
     alpha = self._alpha.update(1.0 if visible else 0.0)
     if alpha < 1e-2:
       return
+    # alerts own the top band (the mici alert layer renders before the HUD); the state keeps ticking underneath
+    if not self._demo and ui_state.sm['selfdriveState'].alertSize != 0:
+      return
 
     t = rl.get_time()
-    panel = rl.Rectangle(rect.x + rect.width - SIDE_PANEL_WIDTH, rect.y, SIDE_PANEL_WIDTH, rect.height)
+    content_w = rect.width - SIDE_PANEL_WIDTH
+    x0 = rect.x + _STRIP_X0
+    strip_w = max(80.0, content_w - _STRIP_X0 - _BADGE_RESERVE)
     mode = self._state.mode
     lit_color = {RailMode.READY: _COLOR_READY, RailMode.FAULT: _COLOR_FAULT, RailMode.FAILED: _COLOR_FAULT}.get(mode, _COLOR_LIT)
 
-    # segments, bottom to top
-    col_x = panel.x + panel.width - _GUTTER - _COL_W
+    # segments, left to right
     segments = max(1, self._state.segments)
-    seg_h = (panel.height - 2 * _MARGIN_Y - (segments - 1) * _GAP) / segments
+    seg_w = (strip_w - (segments - 1) * _BAR_GAP) / segments
     pulse = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * 6.0))
     for n in range(segments):
-      y = panel.y + panel.height - _MARGIN_Y - (n + 1) * seg_h - n * _GAP
-      seg = rl.Rectangle(col_x, y, _COL_W, seg_h)
+      seg = rl.Rectangle(x0 + n * (seg_w + _BAR_GAP), rect.y + _BAR_Y, seg_w, _BAR_H)
       if n < self._state.lit:
         color = _with_alpha(lit_color, alpha)
       elif n == self._state.lit and mode == RailMode.STARTING:
@@ -216,7 +220,7 @@ class StartupRail(Widget):
         color = _with_alpha(_COLOR_UNLIT, alpha)
       rl.draw_rectangle_rounded(seg, 0.5, 6, color)
 
-    # label, rotated to read top-to-bottom in the band left of the column
+    # label, plain horizontal text under the bars
     if mode == RailMode.READY:
       size, color = _READY_SIZE, _COLOR_READY
     elif mode in (RailMode.FAULT, RailMode.FAILED):
@@ -226,27 +230,19 @@ class StartupRail(Widget):
     text = self._label
     if self._state.elapsed_s is not None:
       text = f"{text} {int(self._state.elapsed_s)}s"      # the counter ticks without turning the drum
-    band_w = col_x - (panel.x + _BAND_X)
+    y = rect.y + _LABEL_Y
     p = min(1.0, (t - self._label_t) / _LABEL_SLIDE_S) if self._label_t else 1.0
-    self._draw_rotated(text, panel, band_w, size, _with_alpha(color, alpha * p), (1.0 - p) * _LABEL_SLIDE_PX)
+    self._draw_label(text, x0, y, strip_w, size, _with_alpha(color, alpha * p), (1.0 - p) * _LABEL_SLIDE_PX)
     if p < 1.0 and self._prev_label:
-      self._draw_rotated(self._prev_label, panel, band_w, _LABEL_SIZE, _with_alpha(_COLOR_LIT, alpha * (1.0 - p)), -p * _LABEL_SLIDE_PX)
+      self._draw_label(self._prev_label, x0, y, strip_w, _LABEL_SIZE, _with_alpha(_COLOR_LIT, alpha * (1.0 - p)), -p * _LABEL_SLIDE_PX)
 
-  def _draw_rotated(self, text: str, panel: rl.Rectangle, band_w: float, size: int, color: rl.Color, offset: float) -> None:
+  def _draw_label(self, text: str, x: float, y: float, max_w: float, size: int, color: rl.Color, offset: float) -> None:
     if not text:
       return
-    # measure_text_cached already applies FONT_SCALE; draw_text_pro does NOT (only draw_text_ex is
-    # patched), so the drawn size is scaled here. The text reads TOP-TO-BOTTOM (+90 deg): the driver
-    # sits left of the device and tilts the head right, toward the screen, to read it (road test
-    # 2026-10-07; the concept video's bottom-to-top direction needed a tilt away from the screen).
-    # With +90 deg the glyph box extends to the LEFT of the anchor, so anchor at the band's right
-    # edge; the measured width becomes the on-screen height. Shrink to fit the band and the panel.
-    scale = min(1.0, band_w / (size * FONT_SCALE))
-    w = measure_text_cached(self._font, text, size).x * scale
-    avail = panel.height - 2 * _MARGIN_Y
-    if w > avail:
-      scale *= avail / w
-      w = avail
-    x = panel.x + _BAND_X + band_w - 2
-    y = max(panel.y + 4, panel.y + (panel.height - w) / 2 - offset)   # the drum: a positive offset sits higher
-    rl.draw_text_pro(self._font, text, rl.Vector2(x, y), rl.Vector2(0, 0), 90.0, size * FONT_SCALE * scale, 0, color)
+    # draw_text_ex is the FONT_SCALE-patched call and measure_text_cached applies the same scale, so the
+    # measured width is the on-screen width. Shrink the size to fit the strip rather than clipping a name.
+    w = measure_text_cached(self._font, text, size).x
+    if w > max_w:
+      size = max(14, int(size * max_w / w))
+    # the drum: a positive offset enters from the right, a negative one leaves to the left
+    rl.draw_text_ex(self._font, text, rl.Vector2(x + offset, y), size, 0, color)
