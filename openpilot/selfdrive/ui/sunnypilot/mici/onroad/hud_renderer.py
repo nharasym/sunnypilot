@@ -33,8 +33,8 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # (Do NOT re-derive these from hardwared.THERMAL_BANDS: those min_temp values are the
 # step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
 # thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
-_TEMP_FONT_SIZE = 18   # r49: 26 -> 22 (r48) -> 18, Nick wants the readout smaller still
-_TEMP_LINE_H = 20  # line advance; the scaled 18px box is ~21px tall, digits ink ~13px
+_TEMP_FONT_SIZE = 20   # 26 (r45) -> 22 (r48) -> 18 (r49) -> 20 (r50): 18 was a hair too small
+_TEMP_LINE_H = 22  # line advance; the scaled 20px box is ~23px tall, digits ink ~15px
 _GPU_AMBER_C = 85
 _GPU_RED_C = 100
 # GDDR junction runs hotter than the hotspot by design: the Oct 15-18 trip plateaued at 84-86 degC on an 8 h day
