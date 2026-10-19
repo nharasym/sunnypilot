@@ -1,5 +1,5 @@
 import pyray as rl
-from openpilot.cereal import log, messaging
+from openpilot.cereal import log, messaging, custom
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.mici.onroad.driver_state import DriverStateRenderer
@@ -105,9 +105,13 @@ class BaseCabinCameraDialog(Widget):
       return
 
     AudibleAlert = log.SelfdriveState.AudibleAlert
+    AudibleAlertSP = custom.SelfdriveStateSP.AudibleAlert
+    # HL-FEAT(dm-voice): the preview plays what the car plays -- the vision-policy level-2 prompt
+    # ("Pay Attention", driverDistracted2) speaks; the wheel-touch one keeps the chime
+    is_vision = dm_state is not None and dm_state.activePolicy == log.DriverMonitoringState.MonitoringPolicy.vision
     ALERT_SOUNDS = {
       'one': AudibleAlert.preAlert,
-      'two': AudibleAlert.promptDistracted,
+      'two': AudibleAlertSP.promptDistractedVoice if is_vision else AudibleAlert.promptDistracted,
       'three': AudibleAlert.warningImmediate,
     }
     msg = messaging.new_message('selfdriveState')
