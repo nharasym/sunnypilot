@@ -6,6 +6,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 # HL-FIX(audio-retry): soundd keeps retrying the speaker; past upstream's 30 s budget it flags
 # AudioUnavailable and selfdrived shows a permanent, silent, non-blocking warning
+import unittest
 from openpilot.cereal import log, custom
 from openpilot.selfdrive.selfdrived.events import ET
 from openpilot.selfdrive.ui.soundd import MIC_STALE_S, Soundd
@@ -32,7 +33,7 @@ class _Params:
     self.d.pop(k, None)
 
 
-class TestAudioUnavailableAlert:
+class TestAudioUnavailableAlert(unittest.TestCase):
   def test_enum_is_appended_not_renumbered(self):
     # a port that lands an upstream @27 must renumber ours, not silently collide
     assert int(EventNameSP.audioUnavailable) == 27
@@ -48,7 +49,7 @@ class TestAudioUnavailableAlert:
     assert a.audible_alert == ev.AudibleAlert.none
 
 
-class TestSounddFlag:
+class TestSounddFlag(unittest.TestCase):
   def _soundd(self):
     s = Soundd.__new__(Soundd)  # no wav loading, no real params
     s.params = _Params()
@@ -79,7 +80,7 @@ class _Sm:
     self.recv_time = {'soundPressure': sound_pressure_recv_t}
 
 
-class TestSilentMicVolume:
+class TestSilentMicVolume(unittest.TestCase):
   def _soundd(self, opened_t: float):
     s = Soundd.__new__(Soundd)
     s.stream_open_t = opened_t
