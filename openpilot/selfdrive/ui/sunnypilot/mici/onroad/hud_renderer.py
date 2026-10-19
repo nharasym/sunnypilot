@@ -33,8 +33,8 @@ ThermalStatus = log.DeviceState.ThermalStatus
 # (Do NOT re-derive these from hardwared.THERMAL_BANDS: those min_temp values are the
 # step-DOWN exits of a hysteresis machine, not entry points — reading them as entry
 # thresholds paints red at 99C while thermalStatus is still ok and nothing is throttling.)
-_TEMP_FONT_SIZE = 22   # r48: was 26, a notch smaller so the two lines sit tighter under the badge
-_TEMP_LINE_H = 24  # line advance; the scaled 22px box is ~25px tall, digits ink ~16px
+_TEMP_FONT_SIZE = 18   # r49: 26 -> 22 (r48) -> 18, Nick wants the readout smaller still
+_TEMP_LINE_H = 20  # line advance; the scaled 18px box is ~21px tall, digits ink ~13px
 _GPU_AMBER_C = 85
 _GPU_RED_C = 100
 # GDDR junction runs hotter than the hotspot by design: the Oct 15-18 trip plateaued at 84-86 degC on an 8 h day
@@ -88,7 +88,7 @@ class HudRendererSP(HudRenderer):
     opacity = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(rl.get_time() * 6.0)) if breathe else 1.0
     a = int(255 * opacity)
 
-    text = "GPU"
+    text = "eGPU"  # r49: Nick wants the badge and the temp line to say eGPU
     size = measure_text_cached(self._font_bold, text, _BADGE_FONT_SIZE)
     badge_w, badge_h = size.x + 2 * _BADGE_PAD_X, size.y + 2 * _BADGE_PAD_Y
     self._badge_h = badge_h
@@ -120,9 +120,9 @@ class HudRendererSP(HudRenderer):
     mem_temp = ui_state.sm['chestnutState'].memoryTempC
     if mem_temp > 0:
       mem_color = self._temp_color(mem_temp >= _GPU_MEM_AMBER_C, mem_temp >= _GPU_MEM_RED_C)
-      self._draw_temp_pair(right, y, "GPU", gpu_temp, gpu_color, mem_temp, mem_color)
+      self._draw_temp_pair(right, y, "eGPU", gpu_temp, gpu_color, mem_temp, mem_color)
     else:
-      self._draw_temp(right, y, "GPU", gpu_temp, gpu_color)
+      self._draw_temp(right, y, "eGPU", gpu_temp, gpu_color)
 
     # hottest core, colored by the device's own verdict (see the zone note at the top).
     # Skipped while the right blind-spot indicator shows (same test it renders on, toggle
