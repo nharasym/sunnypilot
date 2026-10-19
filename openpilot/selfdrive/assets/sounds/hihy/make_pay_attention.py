@@ -3,7 +3,7 @@
 HL-FEAT(dm-voice): candidate builder for pay_attention.wav, the spoken driver-distracted prompt ("Hey! Pay attention!").
 
 NOTE: the clip that ships is NOT from this script. It is a zero-shot F5-TTS voice clone made from the Navi reference
-recording (single "Hey! Listen!" sample, speed 0.9, take 2 of 2026-10-18; tooling in ~/tts/navi_clone on the dev Mac,
+recording (the "Hey! Listen!" sample repeated three times, speed 1.0, take 3 of 2026-10-18, Nick's pick by ear; tooling in ~/tts/navi_clone on the dev Mac,
 the reference itself is not in the repo). This script is the no-reference fallback: macOS system voices shaped to the
 same measurements.
 
