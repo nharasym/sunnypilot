@@ -40,6 +40,9 @@ sound_list_sp: dict[int, tuple[str, int | None, float]] = {
   # AudibleAlertSP, file name, play count (none for infinite)
   AudibleAlertSP.promptSingleLow: ("prompt_single_low.wav", 1, MAX_VOLUME),
   AudibleAlertSP.promptSingleHigh: ("prompt_single_high.wav", 1, MAX_VOLUME),
+  # HL-FEAT(dm-voice): "Hey! Pay attention!" for the driver-distracted prompt, looping like dm_warning.wav.
+  # update_alert lets a loop finish before stopping, so the clip is kept to a ~2.3 s period (Navi's own cadence).
+  AudibleAlertSP.promptDistractedVoice: ("hihy/pay_attention.wav", None, MAX_VOLUME),
 }
 
 sound_list: dict[int, tuple[str, int | None, float]] = {

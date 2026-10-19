@@ -2,7 +2,7 @@
 import math
 import os
 
-from openpilot.cereal import log
+from openpilot.cereal import log, custom
 from opendbc.car.structs import car
 import openpilot.cereal.messaging as messaging
 from openpilot.common.constants import CV
@@ -20,6 +20,7 @@ AlertSize = log.SelfdriveState.AlertSize
 AlertStatus = log.SelfdriveState.AlertStatus
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 AudibleAlert = log.SelfdriveState.AudibleAlert
+AudibleAlertSP = custom.SelfdriveStateSP.AudibleAlert  # HL-FEAT(dm-voice)
 EventName = log.OnroadEvent.EventName
 
 
@@ -854,7 +855,9 @@ if HARDWARE.get_device_type() == 'mici':
         "Pay Attention",
         "Driver Distracted",
         AlertStatus.userPrompt, AlertSize.mid,
-        Priority.MID, VisualAlert.steerRequired, AudibleAlert.promptDistracted, 1),
+        # HL-FEAT(dm-voice): "Pay Attention" speaks (hihy/pay_attention.wav) instead of the dm_warning
+        # chime; driverUnresponsive2 ("Touch Steering Wheel") keeps the chime on purpose
+        Priority.MID, VisualAlert.steerRequired, AudibleAlertSP.promptDistractedVoice, 1),
     },
     EventName.resumeRequired: {
       ET.WARNING: Alert(
