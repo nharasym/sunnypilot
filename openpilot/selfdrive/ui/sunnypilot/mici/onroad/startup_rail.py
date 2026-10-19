@@ -37,8 +37,11 @@ _READY_SIZE = 30
 _LABEL_SLIDE_S = 0.3            # the drum: old label slides left and out, new one slides in from the right
 _LABEL_SLIDE_PX = 40
 # strip geometry (536 x 240 mici view): clear of the DMoji on the left and of the GPU badge + temps on the right
-_STRIP_X0 = 72             # DMoji is ~52 px wide at the left edge, plus breathing room
-_BADGE_RESERVE = 120       # GPU badge (~60 px) and the temp readout under it, right-aligned at right - 10
+# r49: centred in the band between the DMoji and the GPU badge. The face spans x 26..78 (renderer at 16/10 plus
+# its own inset); the badge's left edge is at right - 10 - ~58. The temps sit BELOW the badge, not beside the
+# strip, so only the badge needs clearing: 90..(content - 80) is symmetric about that band's centre.
+_STRIP_X0 = 90             # 12 px right of the DMoji's edge
+_BADGE_RESERVE = 96        # 'eGPU' badge (~72 px) + its 10 px right margin + ~14 px gap
 _BAR_Y = 8                 # segment row: top edge, height, gap between segments
 _BAR_H = 10
 _BAR_GAP = 4
