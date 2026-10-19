@@ -93,6 +93,20 @@ BADGE_STYLE: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], bool]] 
   "failed": ((255, 175, 3), (0, 0, 0), False),
 }
 
+# r51: the home/boot screen's eGPU status, drawn in place of upstream's three chestnut PNGs
+# (icons_mici/chestnut{,_green,_orange}.png, which read "GPU") so the offroad screen says eGPU like
+# the onroad badge -- drawn rather than re-cut PNGs so no new binary asset is needed. Same colours as
+# the PNGs: white breathing while loading, green ready, orange with a bang on a failure. Keyed by
+# ui_state.ChestnutState value: (bg rgb, fg rgb, breathe, bang). Absent (disconnected) = hidden.
+HOME_BADGE_TEXT = "eGPU"
+HOME_BADGE_STYLE: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], bool, bool]] = {
+  "loading": ((255, 255, 255), (20, 20, 20), True, False),
+  "ready": ((0, 255, 38), (20, 20, 20), False, False),
+  "active": ((0, 255, 38), (20, 20, 20), False, False),
+  "uncompiled": ((255, 175, 3), (20, 20, 20), False, True),
+  "failed": ((255, 175, 3), (20, 20, 20), False, True),
+}
+
 
 _PCM_STATUS = re.compile(r"/pcm\d+([pc])/sub\d+/status$")
 
