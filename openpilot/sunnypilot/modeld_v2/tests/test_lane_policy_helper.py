@@ -6,6 +6,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 # HL-FEAT(lane-policy): the safety-relevant property is "disabled or gated == exactly
 # upstream E2E, bit for bit". Everything else is comfort. Tests are ordered accordingly.
+import unittest
 import numpy as np
 
 from openpilot.cereal import log
@@ -68,7 +69,7 @@ def _settle(h, mo, n=400, **kw):
   return out
 
 
-class TestLanePolicyDisabledIsUpstream:
+class TestLanePolicyDisabledIsUpstream(unittest.TestCase):
   def test_disabled_returns_e2e_exactly(self):
     h = LanePolicyHelper()
     h.set_state(enabled=False, blinkers_active=False)
@@ -84,7 +85,7 @@ class TestLanePolicyDisabledIsUpstream:
     assert h.weight == 0.0
 
 
-class TestLanePolicyEngages:
+class TestLanePolicyEngages(unittest.TestCase):
   def test_centred_lane_leaves_curvature_near_e2e(self):
     h = LanePolicyHelper()
     h.set_state(enabled=True, blinkers_active=False)
@@ -123,7 +124,7 @@ class TestLanePolicyEngages:
     assert h.weight <= DT_MDL / ENGAGE_TIME + 1e-6
 
 
-class TestLanePolicyGates:
+class TestLanePolicyGates(unittest.TestCase):
   def test_low_confidence_lines_fall_back(self):
     h = LanePolicyHelper()
     h.set_state(enabled=True, blinkers_active=False)
@@ -165,7 +166,7 @@ class TestLanePolicyGates:
     assert h.apply(mo, E2E, V_EGO) == E2E
 
 
-class TestLanePolicyReleaseIsRamped:
+class TestLanePolicyReleaseIsRamped(unittest.TestCase):
   def test_blinker_release_ramps_out_not_snaps(self):
     h = LanePolicyHelper()
     h.set_state(enabled=True, blinkers_active=False)
@@ -196,7 +197,7 @@ class TestLanePolicyReleaseIsRamped:
     assert h.weight == 0.0
 
 
-class TestLaneLineSignConvention:
+class TestLaneLineSignConvention(unittest.TestCase):
   """Pins the measured device convention. If these fail, re-measure before 'fixing' them."""
 
   def test_inner_line_1_minus_2_is_negative_on_real_data(self):

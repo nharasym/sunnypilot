@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import unittest
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.startup_phases import (
   SEGMENTS, LABELS, STEPS, STEPS_NO_DOCK, BIG_MODEL_STEP, READY_HOLD_S, READY_WORD_S, MODEL_NAME_S, MODEL_TAGS, FAILED_HOLD_S,
   DEAD_PROCESS_DEBOUNCE_S, BADGE_STYLE, CRITICAL_PROCESSES, DeadProcessTracker, RailInputs, RailMode, StartupPhases,
@@ -42,7 +43,7 @@ def _boot(p, t0=0.0, audio=True):
   return out
 
 
-class TestMilestones:
+class TestMilestones(unittest.TestCase):
   def test_measured_boot_lights_one_segment_per_step(self):
     s = _boot(StartupPhases())
     assert [x.lit for x in s] == [0, 1, 2, 3, 4, 5, 5, 6, 7, 8, SEGMENTS]
@@ -130,7 +131,7 @@ class TestMilestones:
     assert p.update(_in(t=220, cam=True, sd=True, loading=True)).elapsed_s == 5   # counter restarted too
 
 
-class TestFailuresAndFaults:
+class TestFailuresAndFaults(unittest.TestCase):
   def test_big_model_failed_overrides_and_holds(self):
     p = StartupPhases()
     p.update(_in(t=15, cam=True, sd=True, loading=True))
@@ -183,7 +184,7 @@ class TestFailuresAndFaults:
     assert s.mode == RailMode.FAULT and s.label == "modeld not running"
 
 
-class TestHidden:
+class TestHidden(unittest.TestCase):
   def test_offroad_hides_and_forgets(self):
     p = StartupPhases()
     _boot(p)
@@ -196,7 +197,7 @@ class TestHidden:
     assert s.mode == RailMode.STARTING and s.visible and s.segments == len(STEPS_NO_DOCK)
 
 
-class TestDeadProcessTracker:
+class TestDeadProcessTracker(unittest.TestCase):
   def test_debounce_boundary_and_cleanup(self):
     d = DeadProcessTracker()
     assert d.update({"plannerd"}, 10.0) is None
@@ -228,7 +229,7 @@ class TestDeadProcessTracker:
     assert d.update(set(), 0.5) is None
 
 
-class TestBadgeStyle:
+class TestBadgeStyle(unittest.TestCase):
   def test_covers_exactly_the_drawn_chestnut_states(self):
     assert set(BADGE_STYLE) == {"loading", "active", "uncompiled", "failed"}
     for bg, fg, breathe in BADGE_STYLE.values():
@@ -237,7 +238,7 @@ class TestBadgeStyle:
     assert BADGE_STYLE["uncompiled"][0] == BADGE_STYLE["failed"][0]    # one amber for both bad states
 
 
-class TestReadyNamesTheModels:
+class TestReadyNamesTheModels(unittest.TestCase):
   BIG = "Cinque Terre Model V2 (September 08, 2026)"
   SMALL = "Terrible Super Fantastic Do Over Model (August 15, 2026)"
 
@@ -299,7 +300,7 @@ class TestReadyNamesTheModels:
     assert not at(READY_WORD_S + 2 * MODEL_NAME_S + 0.05).visible
 
 
-class TestAudioSteps:
+class TestAudioSteps(unittest.TestCase):
   def _models_in(self, p, t0=0.0, dock=True):
     """Boot to the end of the model steps with the audio still down."""
     if dock:
@@ -339,7 +340,7 @@ class TestAudioSteps:
     assert s.mode == RailMode.FAULT and s.label == "micd not running"
 
 
-class TestNoDock:
+class TestNoDock(unittest.TestCase):
   SMALL = "The Cool Peoples Model v3 (October 10, 2025)"
 
   def test_boot_narrates_the_small_model_with_a_counter_then_the_audio(self):
@@ -370,7 +371,7 @@ class TestNoDock:
     assert not at(READY_WORD_S + MODEL_NAME_S + 0.05).visible
 
 
-class TestAudioStreamsRunning:
+class TestAudioStreamsRunning(unittest.TestCase):
   def _status(self, root, rel, state):
     import os
     path = os.path.join(root, rel)
