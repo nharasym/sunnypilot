@@ -112,6 +112,9 @@ struct SelfdriveStateSP @0x81c2f05a394cf4af {
 
     promptSingleLow @31;
     promptSingleHigh @32;
+
+    # HL-FEAT(dm-voice): the spoken "Pay Attention" prompt (openpilot/selfdrive/assets/sounds/hihy)
+    promptDistractedVoice @33;
   }
 }
 
