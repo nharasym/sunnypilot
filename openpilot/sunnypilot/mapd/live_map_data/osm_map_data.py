@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import json
 import math
 import platform
 
@@ -25,6 +26,21 @@ class OsmMapData(BaseMapData):
     if self.localizer_valid:
       self.last_bearing = math.degrees(location.calibratedOrientationNED.value[2])
       self.last_position = Coordinate(location.positionGeodetic.value[0], location.positionGeodetic.value[1])
+
+    if self.last_position is None:
+      return
+
+    params = {
+      "latitude": self.last_position.latitude,
+      "longitude": self.last_position.longitude,
+    }
+
+    if self.last_bearing is not None:
+      params['bearing'] = self.last_bearing
+
+    # HL-FIX(map-speed-limit): mapd (pfeiferj, v1.12.0) reads this JSON from the mem store. Upstream dropped the
+    # write when #39079 made LastGPSPosition a BYTES key for ubloxd; a str put now raises, so write bytes.
+    self.mem_params.put("LastGPSPosition", json.dumps(params).encode(), block=True)
 
 
   def get_current_speed_limit(self) -> float:

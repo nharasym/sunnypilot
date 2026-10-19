@@ -169,25 +169,25 @@ sections:
         label: Map Data Only
         enablement:
         - type: capability
-          field: mapd_available
+          field: mapd_speed_limit_available
           equals: true
       - value: 2
         label: Car State Priority
         enablement:
         - type: capability
-          field: mapd_available
+          field: mapd_speed_limit_available
           equals: true
       - value: 3
         label: Map Data Priority
         enablement:
         - type: capability
-          field: mapd_available
+          field: mapd_speed_limit_available
           equals: true
       - value: 4
         label: Combined
         enablement:
         - type: capability
-          field: mapd_available
+          field: mapd_speed_limit_available
           equals: true
     - key: SpeedLimitOffsetType
       widget: multiple_button

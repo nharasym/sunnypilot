@@ -121,6 +121,10 @@ def update_osm_db() -> None:
   if not mem_params.get("OSMDownloadBounds"):
     mem_params.put("OSMDownloadBounds", "", block=True)
 
+  # HL-FIX(map-speed-limit): mapd expects the key to exist; BYTES key since #39079
+  if not mem_params.get("LastGPSPosition"):
+    mem_params.put("LastGPSPosition", b"{}", block=True)
+
 
 def main_thread():
   update_installed_version(VERSION, params)
