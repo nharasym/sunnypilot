@@ -7,13 +7,17 @@ See the LICENSE.md file in the root directory for more details.
 # HL-FEAT(stop-assist): the planner contract Stop Assist relies on, checked on the source (ast, nothing imported, so it
 # runs on the Mac where the compiled MPC is missing). It fails loudly when an upstream sync changes it:
 #  - the stock planner builds ONE unconditional candidates list with the model's e2e candidate in it,
-#  - our single hook line follows it immediately, then min() by accel and any() over the stop flags,
+#  - our single hook line follows it immediately, then min() by accel and any() over every stop flag (no filter),
 #  - nothing else touches the list (comma's v0.11.2 appends the model only in Experimental mode: Stop Assist must then
-#    see no e2e candidate and stay out),
-#  - the sunnypilot planner clears events_sp before the hook runs and fills stopAssist before it sends.
+#    see no e2e candidate and stay out), and nothing after the any() reassigns the outputs,
+#  - the e2e candidate is the model's own action (through accel_boost), and long_mpc's LongitudinalPlanSource is the
+#    log enum SOURCE_E2E comes from,
+#  - the sunnypilot planner clears events_sp only in update() (before the hook runs), never replaces it, and fills
+#    stopAssist before it sends.
 # unittest.TestCase, setUp only.
 import ast
 import os
+import re
 import unittest
 
 import openpilot
@@ -21,6 +25,7 @@ import openpilot
 OPENPILOT = os.path.dirname(os.path.abspath(openpilot.__file__))
 STOCK = os.path.join(OPENPILOT, "selfdrive", "controls", "lib", "longitudinal_planner.py")
 SP = os.path.join(OPENPILOT, "sunnypilot", "selfdrive", "controls", "lib", "longitudinal_planner.py")
+LONG_MPC = os.path.join(OPENPILOT, "selfdrive", "controls", "lib", "longitudinal_mpc_lib", "long_mpc.py")
 HOOK = "candidates += self.stop_assist.update(sm, candidates)"
 MARKER = "# HL-FEAT(stop-assist)"
 
@@ -80,10 +85,37 @@ class TestStockPlannerContract(unittest.TestCase):
     call = flag.value
     assert isinstance(call, ast.Call) and getattr(call.func, "id", "") == "any" and len(call.args) == 1
     gen = call.args[0]
-    assert isinstance(gen, ast.GeneratorExp) and ast.unparse(gen.generators[0].iter) == "candidates"
+    # one plain loop over every candidate: an `if` clause (e.g. skipping the e2e source) would drop a hold's stop flag
+    assert isinstance(gen, ast.GeneratorExp) and len(gen.generators) == 1, ast.unparse(call)
+    assert not gen.generators[0].ifs and ast.unparse(gen.generators[0].iter) == "candidates", ast.unparse(call)
     target = gen.generators[0].target
     assert isinstance(target, ast.Tuple) and len(target.elts) == 3
     assert ast.unparse(gen.elt) == ast.unparse(target.elts[2]), "the OR must be over every candidate's stop flag"
+
+  def test_nothing_overrides_the_selection_afterwards(self):
+    # the min() and the OR are final: only the stock clip follows, and no later statement reassigns either output
+    nxt = self.body[self.i + 4]
+    assert ast.unparse(nxt) == "self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)", ast.unparse(nxt)
+    for stmt in self.body[self.i + 5:]:
+      for node in ast.walk(stmt):
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+          targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+          for t in targets:
+            assert ast.unparse(t) not in ("self.output_should_stop", "self.output_a_target", "output_a_target"), ast.unparse(node)
+
+  def test_the_model_candidate_is_the_models_action(self):
+    # Stop Assist only acts when the planner really uses the model's action (an e2e candidate that is present but
+    # neutered, e.g. set to ACCEL_MAX outside Experimental mode, would make our entry the only one braking)
+    def values(name):
+      return [ast.unparse(n.value) for n in ast.walk(self.update)
+              if isinstance(n, ast.Assign) and any(ast.unparse(t) == name for t in n.targets)]
+    assert values("output_a_target_e2e") == [
+      "sm['modelV2'].action.desiredAcceleration",
+      "self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)",
+    ], values("output_a_target_e2e")
+    assert values("output_should_stop_e2e") == ["sm['modelV2'].action.shouldStop"], values("output_should_stop_e2e")
+    assert not [n for n in ast.walk(self.update) if isinstance(n, ast.AugAssign) and
+                ast.unparse(n.target) in ("output_a_target_e2e", "output_should_stop_e2e")]
 
   def test_nothing_else_touches_the_list(self):
     touched = [n for n in ast.walk(self.update) if _touches_candidates(n)]
@@ -101,6 +133,15 @@ class TestStockPlannerContract(unittest.TestCase):
     publish = _method(self.tree, "LongitudinalPlanner", "publish")
     assert "self.publish_longitudinal_plan_sp(sm, pm)" in ast.unparse(publish)
     assert "longitudinalPlan.longitudinalPlanSource = self.mpc.source" in ast.unparse(publish)
+
+
+class TestLongMpcSourceEnum(unittest.TestCase):
+  def test_long_mpc_reexports_the_stock_log_enum(self):
+    # SOURCE_E2E is log.LongitudinalPlan.LongitudinalPlanSource.e2e, which the stock planner compares through
+    # long_mpc's re-export (the integration test's fake long_mpc hard-codes the same line)
+    src = _read(LONG_MPC)
+    assert re.findall(r"^LongitudinalPlanSource = (.*)$", src, re.M) == ["log.LongitudinalPlan.LongitudinalPlanSource"]
+    assert re.search(r"^from openpilot\.cereal import log$", src, re.M)
 
 
 class TestPackageImports(unittest.TestCase):
@@ -147,6 +188,20 @@ class TestSunnypilotPlannerContract(unittest.TestCase):
   def test_update_clears_the_events(self):
     update = _method(self.tree, "LongitudinalPlannerSP", "update")
     assert "self.events_sp.clear()" in [ast.unparse(s) for s in update.body]
+
+  def test_events_are_cleared_only_in_update_and_never_replaced(self):
+    # a clear() between the hook and to_msg() (e.g. in publish) would drop "Stopping" every frame; a new EventsSP()
+    # after __init__ would leave Stop Assist adding to an orphaned object
+    where = {"clear": [], "assign": []}
+    for fn in ast.walk(self.tree):
+      if isinstance(fn, ast.FunctionDef):
+        for node in ast.walk(fn):
+          if isinstance(node, ast.Call) and ast.unparse(node.func) == "self.events_sp.clear":
+            where["clear"].append(fn.name)
+          if isinstance(node, ast.Assign) and any(ast.unparse(t) == "self.events_sp" for t in node.targets):
+            where["assign"].append(fn.name)
+    assert where == {"clear": ["update"], "assign": ["__init__"]}, where
+    assert "events_sp" not in _read(STOCK)
 
   def test_fill_comes_right_before_the_send_and_after_the_events(self):
     pub = _method(self.tree, "LongitudinalPlannerSP", "publish_longitudinal_plan_sp")
