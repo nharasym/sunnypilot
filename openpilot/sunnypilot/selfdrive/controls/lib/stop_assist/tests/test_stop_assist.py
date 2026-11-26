@@ -23,6 +23,13 @@ from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers i
 
 EVENT = 28  # custom.OnroadEventSP.EventName.stopAssist (pinned in test_telemetry_and_events)
 HOLD_ENTRY = (0.0, SOURCE_E2E, True)
+SMOOTH = 1.0 - math.exp(-0.05 / 0.3)  # modeld smooths the published action over 0.3 s
+
+
+def no_stop_plan(v):
+  """A plan without a planned stop: its minimum stays above LIGHTS_STOP_V."""
+  x, vv = plan_cruise(v)
+  return x, np.maximum(vv, C.LIGHTS_STOP_V + 0.3).astype(np.float32)
 
 
 def new_sa(lights=True, offset_ft=3, op_long=True):
@@ -453,6 +460,54 @@ class TestInert(unittest.TestCase):
       def __getattr__(self, name):
         raise AssertionError("touched in the constructor")
     StopAssist(NS(openpilotLongitudinalControl=True), Raising(), params=Raising())
+
+
+class TestDropoutNearTheStop(_Base):
+  """Over the last seconds of every stop the model's action eases toward 0 by itself while it still brakes. A short
+  plan dropout there is not a green unless the model has (nearly) stopped braking: the stop stays ours. (As built,
+  a 0.1 m/s^2 rise during a 5-6 frame dropout ramped out, and the car then stopped where stock would.)"""
+
+  def _drive_to(self, where):
+    self.sim = Sim(self.sa, v0=11.0, stop_at=60.0)
+    if where == State.APPROACH:
+      self.run_until(lambda r: r['state'] == State.APPROACH and r['v'] < 8.0)
+    else:
+      self.run_until(lambda r: r['state'] == State.FINAL and r['v'] <= 2.6)
+      assert self.sim.v >= C.LOW_V_GO  # the dropout rules apply here, not the low-speed go
+
+  def test_easing_action_during_a_short_dropout_keeps_the_stop(self):
+    for rate in (0.24, 0.5, 0.64):  # the logged end-of-stop easing is 0.46-0.64 m/s^3
+      self.setUp()
+      self._drive_to(State.FINAL)
+      a = self.sim.records[-1]['a_model']
+      assert a < C.DROP_GREEN_ACCEL - 0.1, a
+      for _ in range(6):  # 0.3 s without a planned stop; the action rises 0.07-0.19 m/s^2 but still brakes
+        a += rate * 0.05
+        self.sim.plan_override = no_stop_plan(self.sim.v)
+        self.sim.a_model_override = a
+        rec = self.step()
+        assert rec['state'] == State.FINAL and rec['entries'], (rate, rec['state'], a)
+        assert rec['entries'][0][0] >= a - C.DROP_CLAMP - EPS  # the dropout clamp still applies
+      self.sim.plan_override = self.sim.a_model_override = None
+      rec = self.run_until(lambda r: r['state'] != State.FINAL, 400)
+      assert rec['state'] == State.HOLD, (rate, rec['state'])
+      target = 60.0 - 3 * C.FT_TO_M
+      assert target - 1.0 <= self.sim.x <= target + 0.3, (rate, self.sim.x, target)
+
+  def test_a_real_green_is_still_caught_within_a_few_frames(self):
+    for where in (State.APPROACH, State.FINAL):
+      self.setUp()
+      self._drive_to(where)
+      a = self.sim.records[-1]['a_model']
+      for k in range(1, 30):
+        a = SMOOTH * 0.8 + (1.0 - SMOOTH) * a  # the raw action jumps to +0.8
+        self.sim.plan_override = no_stop_plan(self.sim.v)
+        self.sim.a_model_override = a
+        rec = self.step()
+        assert rec['entries'] == [] or rec['entries'][0][0] >= a - C.DROP_CLAMP - EPS, (where, k)
+        if rec['state'] == State.RAMP_OUT:
+          break
+      assert rec['state'] == State.RAMP_OUT and rec['reason'] == Reason.GREEN and k <= 4, (where, k, rec['state'])
 
 
 class TestInvariantsRandom(unittest.TestCase):

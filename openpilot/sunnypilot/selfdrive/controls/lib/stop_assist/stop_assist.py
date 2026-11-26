@@ -466,11 +466,12 @@ class StopAssist:
   # ---------------------------------------------------------------- helpers
 
   def _dropout_end(self, f: _Frame) -> int | None:
-    """A frame with no planned stop during APPROACH/FINAL: green, stop lost, or keep (None)."""
+    """A frame with no planned stop during APPROACH/FINAL: green, stop lost, or keep (None). Green needs the model to
+    have (nearly) stopped braking: its action eases toward 0 by itself over the last seconds of every stop."""
     if self._drop_a0 is None:
       self._drop_a0 = f.a_model
     drop_s = (f.t - (self._t_last_stop if self._t_last_stop is not None else f.t)) / 1e9
-    if (drop_s >= C.DROP_GREEN_S and f.a_model >= C.DROP_GREEN_ACCEL) or f.a_model - self._drop_a0 > C.DROP_RISE:
+    if f.a_model >= C.DROP_GREEN_ACCEL and (drop_s >= C.DROP_GREEN_S or f.a_model - self._drop_a0 > C.DROP_RISE):
       return Reason.GREEN
     if drop_s > C.DROP_MAX_S:
       return Reason.STOP_LOST
