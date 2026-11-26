@@ -545,6 +545,48 @@ class TestReleasedSurvivesHiccups(_Base):
     self._no_rearm()
 
 
+class TestSettingOff(_Base):
+  def test_a_kept_hold_logs_how_it_ended(self):
+    self.to_hold()
+    self.params.d["StopAssistLights"] = False
+    for _ in range(80):  # past the next settings read
+      assert self.step()['state'] == State.HOLD
+    self.sim.green = True
+    rec = self.until_state(State.OFF, 40)
+    assert rec['reason'] == Reason.GREEN and rec['entries'] == [], rec['reason']
+    for _ in range(100):  # and keeps it while off
+      rec = self.step()
+      assert rec['state'] == State.OFF and rec['reason'] == Reason.GREEN
+
+  def test_gas_on_a_kept_hold_logs_gas(self):
+    self.to_hold()
+    self.params.d["StopAssistLights"] = False
+    for _ in range(80):
+      self.step()
+    self.sim.gas = True
+    rec = self.step()
+    assert rec['state'] == State.OFF and rec['reason'] == Reason.GAS and rec['entries'] == []
+
+  def test_off_reads_nothing_and_turns_on_afresh(self):
+    class Raising:
+      def __getitem__(self, key):
+        raise AssertionError("sm read while off")
+
+      def __getattr__(self, name):
+        raise AssertionError("sm read while off")
+    sa, ev, params = new_sa(lights=False)
+    for _ in range(130):  # past two settings reads
+      assert sa.update(Raising(), stock_candidates(12.0, -1.0, False)) == []
+    assert sa.state == State.OFF and sa.reason == Reason.SETTING_OFF and not sa._faulted and ev.events == []
+    msg = custom.LongitudinalPlanSP.new_message()
+    sa.fill(msg.stopAssist)
+    assert msg.stopAssist.state == 'off' and msg.stopAssist.planStopM == -1.0 and not msg.stopAssist.active
+    params.d["StopAssistLights"] = True
+    sim = Sim(sa, v0=12.0, stop_at=150.0)  # its clock starts over: the first frame after the turn-on is no gap
+    rec = sim.run_until(lambda r: r['state'] not in (State.OFF, State.IDLE), 1500)
+    assert rec['state'] == State.CONFIRM and not sa._faulted
+
+
 class TestInvariantsRandom(unittest.TestCase):
   def test_random_frames_never_raise_and_entries_are_valid(self):
     rng = random.Random(1126)

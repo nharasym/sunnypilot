@@ -21,7 +21,8 @@ stop being held then stays held until the accelerator, the brake or a disengage.
 
 States: OFF -> IDLE -> CONFIRM -> APPROACH -> FINAL -> HOLD -> RELEASED -> IDLE. RAMP_OUT eases an entry out
 instead of deleting it; only the accelerator, the brake, a disengage or a model gap end an entry at once (as stock).
-Never import long_mpc, either longitudinal planner or longcontrol here: the Mac cannot import the compiled MPC.
+With the setting off and nothing kept, update() reads nothing from sm. Never import long_mpc, either longitudinal
+planner or longcontrol here: the Mac cannot import the compiled MPC.
 """
 import math
 
@@ -199,6 +200,8 @@ class StopAssist:
       return []
     if self._frame % PARAMS_EVERY_FRAMES == 0:
       self._read_settings()
+    if not self._setting_on and self._state == State.OFF:
+      return self._off()
 
     f = self._read_frame(sm)
     out = self._run(f, candidates)
@@ -215,6 +218,22 @@ class StopAssist:
       self.params = Params()
     self._setting_on = bool(self.params.get_bool("StopAssistLights"))
     self._offset_setting_m = offset_m_from_ft(self.params.get("StopAssistLightsOffsetFt", return_default=True))
+
+  def _off(self) -> list:
+    """The setting is off and nothing is kept (no hold, no ramp): read nothing from sm. The frame timing is
+    forgotten, so a later turn-on starts afresh (no model gap and no model switch on its first frame)."""
+    self._t_prev = None
+    self._big_prev = None
+    self._t_last_stop = None
+    self._offset_m = self._offset_setting_m
+    self._remaining = 0.0
+    self._hold_s = 0.0
+    self._plan_stop_m = -1.0
+    self._a_model = 0.0
+    self._big = False
+    if self._reason == Reason.NONE:
+      self._reason = Reason.SETTING_OFF  # otherwise it keeps why the last episode ended
+    return []
 
   def _read_frame(self, sm) -> _Frame:
     f = _Frame()
@@ -518,9 +537,9 @@ class StopAssist:
     return self._end(State.IDLE, reason)
 
   def _end(self, state: int, reason: int) -> list:
-    """Leave the episode at once (no ramp); with the setting off every end is OFF."""
+    """Leave the episode at once (no ramp). With the setting off every end is OFF; the reason stays the real one."""
     if not self._setting_on:
-      state, reason = State.OFF, Reason.SETTING_OFF
+      state = State.OFF
     self._state = state
     self._reason = reason
     self._tracker.reset()
