@@ -141,8 +141,8 @@ sections:
   - key: StopAssistLightsOffsetFt
     widget: option
     title: 'Stop Assist: Stop Earlier By'
-    description: Extra distance before the point openpilot aims for. 0 = openpilot's own stop point, which on past drives was
-      already 3-5 ft earlier than today's stops. Default 3 ft.
+    description: Extra distance before the point openpilot aims for. 0 = about 1 ft before openpilot's own stop point, which
+      on past drives was already 3-5 ft earlier than today's stops. Default 3 ft.
     min: 0
     max: 10
     step: 1
