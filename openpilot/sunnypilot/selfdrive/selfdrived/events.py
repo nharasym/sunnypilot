@@ -48,6 +48,25 @@ def big_model_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.Sub
     Priority.LOW, VisualAlert.none, AudibleAlert.prompt, .2)
 
 
+# HL-FEAT(stop-assist): plannerd re-adds stopAssist every frame while Stop Assist brakes for a planned stop and for 3 s
+# after a fault; the text follows longitudinalPlanSP.stopAssist.state. Silent and small. Never raises.
+def stop_assist_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+  try:
+    if sm['longitudinalPlanSP'].stopAssist.state == 'faulted':
+      return Alert(
+        "Stop Assist Off",
+        "Turned off for this drive",
+        AlertStatus.normal, AlertSize.small,
+        Priority.LOW, VisualAlert.none, AudibleAlert.none, .1)
+  except Exception:
+    pass
+  return Alert(
+    "Stopping",
+    "",
+    AlertStatus.normal, AlertSize.small,
+    Priority.LOW, VisualAlert.none, AudibleAlert.none, .1)
+
+
 def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   speed_conv = CV.MS_TO_KPH if metric else CV.MS_TO_MPH
   v_cruise_cluster = CS.vCruiseCluster
@@ -284,5 +303,11 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
   # ET.PERMANENT so it shows engaged or not; deliberately no NO_ENTRY.
   EventNameSP.audioUnavailable: {
     ET.PERMANENT: NormalPermanentAlert("Audio Unavailable", "Alerts are silent"),
+  },
+
+  # HL-FEAT(stop-assist): ET.WARNING only (shown while engaged), so it can never block or end engagement. This entry
+  # must exist: selfdrived indexes EVENTS_SP by the raw event number, and a missing one is a KeyError there.
+  EventNameSP.stopAssist: {
+    ET.WARNING: stop_assist_alert,
   },
 }
