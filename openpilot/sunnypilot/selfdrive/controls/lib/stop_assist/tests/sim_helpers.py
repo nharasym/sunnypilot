@@ -9,6 +9,7 @@ numpy-heavy code would hand them over), synthetic model plans, and a small close
 planner's rule (minimum accel over the candidates, OR of the stop flags), so whole stops can be driven.
 No pytest, no fixtures: the on-device unittest shim imports this module too.
 """
+import contextlib
 from types import SimpleNamespace as NS
 
 import numpy as np
@@ -16,6 +17,7 @@ import numpy as np
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import constants as C
+from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import stop_assist as sa_module
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import State
 
 T_IDXS = np.array(ModelConstants.T_IDXS, dtype=np.float64)
@@ -57,6 +59,28 @@ class FakeSM(dict):
   def __init__(self):
     super().__init__()
     self.logMonoTime: dict[str, int] = {}
+
+
+class CountingLog:
+  def __init__(self):
+    self.exceptions = 0
+
+  def exception(self, *args, **kwargs):
+    self.exceptions += 1
+
+
+@contextlib.contextmanager
+def quiet_faults():
+  """For a test that faults Stop Assist on purpose: stop_assist's cloudlog is a counter meanwhile, so the device's
+  swaglog (and, onroad, the route's qlog via logmessaged) never gets a traceback that is not a real fault.
+  Restored on exit, also on failure (the device shim never calls tearDown)."""
+  saved = sa_module.cloudlog
+  log = CountingLog()
+  sa_module.cloudlog = log
+  try:
+    yield log
+  finally:
+    sa_module.cloudlog = saved
 
 
 def plan_stop(v0: float, d_stop: float):

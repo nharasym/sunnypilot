@@ -24,7 +24,7 @@ from openpilot.selfdrive.modeld.constants import index_function
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import State
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers import (
-  FakeParams, T_IDXS, plan_cruise, plan_parked, plan_standstill_go, plan_stop,
+  FakeParams, T_IDXS, plan_cruise, plan_parked, plan_standstill_go, plan_stop, quiet_faults,
 )
 
 LONG_MPC = "openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc"
@@ -307,22 +307,24 @@ class TestPlannerIntegration(unittest.TestCase):
       raise RuntimeError("injected")
     broken.stop_assist._read_frame = boom
     pm_b, pm_r = FakePM(), FakePM()
-    for sm in _random_frames(7, 200):
-      for p, pm in ((broken, pm_b), (ref, pm_r)):
-        p.update(sm)
-        p.publish(sm, pm)
-      assert _outputs(broken, pm_b) == _outputs(ref, pm_r)
-    assert broken.stop_assist.state == State.FAULTED
+    with quiet_faults() as log:
+      for sm in _random_frames(7, 200):
+        for p, pm in ((broken, pm_b), (ref, pm_r)):
+          p.update(sm)
+          p.publish(sm, pm)
+        assert _outputs(broken, pm_b) == _outputs(ref, pm_r)
+    assert broken.stop_assist.state == State.FAULTED and log.exceptions == 1
     assert pm_b.plan_sp()['state'] == State.FAULTED
 
   def test_a_broken_fill_still_publishes(self):
     drive = Drive(new_planner(lights=True))
     drive.until(State.APPROACH)
     drive.p.stop_assist._out = [(object(), SOURCE_E2E, True)]  # float(object()) raises inside fill()
-    drive.p.publish_longitudinal_plan_sp(FakeSM(), drive.pm)
-    assert drive.pm.plan_sp()['state'] == State.FAULTED
-    rec = drive.step()
-    assert rec['entries'] == [] and rec['state'] == State.FAULTED
+    with quiet_faults() as log:
+      drive.p.publish_longitudinal_plan_sp(FakeSM(), drive.pm)
+      assert drive.pm.plan_sp()['state'] == State.FAULTED
+      rec = drive.step()
+    assert rec['entries'] == [] and rec['state'] == State.FAULTED and log.exceptions == 1
 
   def test_candidates_without_e2e_produce_no_entry(self):
     drive = Drive(new_planner(lights=True))

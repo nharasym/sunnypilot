@@ -16,7 +16,7 @@ from openpilot.selfdrive.selfdrived.alertmanager import AlertManager
 from openpilot.selfdrive.selfdrived.events import EVENTS, EventName
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E, StopAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import Reason, State
-from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers import FakeEvents, FakeParams, Sim
+from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers import FakeEvents, FakeParams, Sim, quiet_faults
 from openpilot.sunnypilot.selfdrive.selfdrived import events as ev
 from openpilot.sunnypilot.selfdrive.selfdrived.events_base import ET, Alert, Priority
 
@@ -97,8 +97,10 @@ class TestTelemetry(unittest.TestCase):
     drive(sim, 3, sa)
     sim.lead = None
     sa._law = None                          # the next law call (the next approach) raises
-    drive_until(sim, sa, State.FAULTED)
-    drive(sim, 5, sa)
+    with quiet_faults() as log:
+      drive_until(sim, sa, State.FAULTED)
+      drive(sim, 5, sa)
+    assert log.exceptions == 1
 
     assert seen == set(range(State.FAULTED + 1)), sorted(seen)
 
