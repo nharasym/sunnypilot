@@ -125,6 +125,7 @@ class StopAssist:
     self._window: list[float | None] = []
     self._confirm_t0 = 0
     self._a_cmd = 0.0
+    self._t_our_stop = 0  # last frame that planned our stop (within NEW_STOP_M beyond the target)
     self._new_stop_t0: int | None = None
     self._drop_a0: float | None = None
     self._go_t0: int | None = None
@@ -392,6 +393,7 @@ class StopAssist:
     # confirmed: start from the planner's current output so the first entry is no step
     self._tracker.start(points, self._offset_m, f.s)
     self._a_cmd = _clip(stock_min, -C.A_CAP, C.A_MAX)
+    self._t_our_stop = self._t_last_stop if self._t_last_stop is not None else f.t
     self._state = State.APPROACH
     return self._approach(f, stock_min, seeded=True)
 
@@ -400,20 +402,21 @@ class StopAssist:
     if blocking_lead(f.lead_present, f.lead_drel, f.lead_vrel, tr.target - f.s):
       return self._ramp(Reason.LEAD, f, stock_min)
 
-    lost = f.s_raw is None
-    if not lost:
+    ours = self._ours(f)
+    if ours:
+      self._t_our_stop = f.t
       self._drop_a0 = None
-      if f.s_raw - self._offset_m > tr.target + C.NEW_STOP_M:
-        if self._new_stop_t0 is None:
-          self._new_stop_t0 = f.t
-        if f.t - self._new_stop_t0 >= _ns(C.NEW_STOP_S):
-          return self._ramp(Reason.NEW_STOP, f, stock_min)
-      else:
-        self._new_stop_t0 = None
+      self._new_stop_t0 = None
       if not seeded:
         tr.update(f.s_raw, f.s, f.dt)
     else:
-      self._new_stop_t0 = None
+      # our stop is missing from this frame: no planned stop, or one well beyond ours. Mixed frames keep both
+      # timers running, so a plan that alternates between the next light and no stop cannot hold us on.
+      if f.s_raw is not None:
+        if self._new_stop_t0 is None:
+          self._new_stop_t0 = f.t
+        if f.t - self._new_stop_t0 >= _ns(C.NEW_STOP_S):
+          return self._ramp(Reason.NEW_STOP, f, stock_min, clamp=True)
       why = self._dropout_end(f)
       if why is not None:
         return self._ramp(why, f, stock_min, clamp=True)
@@ -422,7 +425,7 @@ class StopAssist:
     if tr.target - f.s <= C.FREEZE_M or f.v < C.FREEZE_V:
       self._state = State.FINAL
       tr.freeze()
-    return self._law(f, clamp=lost)
+    return self._law(f, clamp=not ours)
 
   def _final(self, f: _Frame, stock_min: float) -> list:
     if f.standstill:
@@ -435,6 +438,7 @@ class StopAssist:
       # the plan minimum is the car's own speed down here: green is the model's go, held LOW_V_GO_S. While it is
       # pending the command may ease but never brakes harder, and the green ramps out within GO_CONFIRM_S.
       self._drop_a0 = None
+      self._t_our_stop = f.t
       if not model_go(f.model_stop, f.a_model, f.v):
         self._go_t0 = None
         return self._law(f, clamp=False)
@@ -445,14 +449,15 @@ class StopAssist:
       return self._law(f, clamp=False, deepen=False)
 
     self._go_t0 = None
-    lost = f.s_raw is None
-    if lost:
+    ours = self._ours(f)
+    if ours:
+      self._t_our_stop = f.t
+      self._drop_a0 = None
+    else:
       why = self._dropout_end(f)
       if why is not None:
         return self._ramp(why, f, stock_min, clamp=True)
-    else:
-      self._drop_a0 = None
-    return self._law(f, clamp=lost)
+    return self._law(f, clamp=not ours)
 
   def _hold(self, f: _Frame) -> list:
     if model_go(f.model_stop, f.a_model, f.v):
@@ -489,12 +494,16 @@ class StopAssist:
 
   # ---------------------------------------------------------------- helpers
 
+  def _ours(self, f: _Frame) -> bool:
+    """This frame plans our stop: a planned stop no more than NEW_STOP_M beyond the target."""
+    return f.s_raw is not None and f.s_raw - self._offset_m <= self._tracker.target + C.NEW_STOP_M
+
   def _dropout_end(self, f: _Frame) -> int | None:
-    """A frame with no planned stop during APPROACH/FINAL: green, stop lost, or keep (None). Green needs the model to
-    have (nearly) stopped braking: its action eases toward 0 by itself over the last seconds of every stop."""
+    """A frame without our stop during APPROACH/FINAL: green, stop lost, or keep (None). Green needs the model to have
+    (nearly) stopped braking: its action eases toward 0 by itself over the last seconds of every stop."""
     if self._drop_a0 is None:
       self._drop_a0 = f.a_model
-    drop_s = (f.t - (self._t_last_stop if self._t_last_stop is not None else f.t)) / 1e9
+    drop_s = (f.t - self._t_our_stop) / 1e9
     if f.a_model >= C.DROP_GREEN_ACCEL and (drop_s >= C.DROP_GREEN_S or f.a_model - self._drop_a0 > C.DROP_RISE):
       return Reason.GREEN
     if drop_s > C.DROP_MAX_S:

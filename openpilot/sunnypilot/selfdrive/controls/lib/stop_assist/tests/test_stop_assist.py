@@ -19,7 +19,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import constants as
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import State, Reason
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_point import planned_stop
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers import (
-  DT_NS, EPS, FakeEvents, FakeParams, Sim, make_sm, plan_cruise, plan_standstill_go, plan_stop, stock_candidates,
+  DT_NS, EPS, T_IDXS, FakeEvents, FakeParams, Sim, make_sm, plan_cruise, plan_standstill_go, plan_stop, stock_candidates,
 )
 
 EVENT = int(custom.OnroadEventSP.EventName.stopAssist)  # the number itself is pinned in test_telemetry_and_events
@@ -31,6 +31,13 @@ def no_stop_plan(v):
   """A plan without a planned stop: its minimum stays above LIGHTS_STOP_V."""
   x, vv = plan_cruise(v)
   return x, np.maximum(vv, C.LIGHTS_STOP_V + 0.3).astype(np.float32)
+
+
+def far_stop_plan(v0, d, t_stop=9.5):
+  """A plan whose speed falls linearly to 0 at t_stop, where it is d metres ahead (inside the horizon however far d
+  is): planned_stop() reads only the first minimum of the speed and the position there."""
+  frac = np.clip(T_IDXS / t_stop, 0.0, 1.0)
+  return (d * (1.0 - (1.0 - frac) ** 2)).astype(np.float32), (max(float(v0), 0.0) * (1.0 - frac)).astype(np.float32)
 
 
 def new_sa(lights=True, offset_ft=3, op_long=True):
@@ -650,6 +657,45 @@ class TestReleasedSurvivesHiccups(_Base):
     assert rec['state'] == State.RELEASED and rec['entries'] == []
     self.sim.with_e2e = True
     self._no_rearm()
+
+
+class TestInterleavedPlans(_Base):
+  """A frame that plans a stop well beyond ours (the next light) is 'our stop missing' too, and mixed frames keep both
+  timers running: a plan alternating between the next light and no stop cannot keep Stop Assist braking through a
+  green. (As built: 8.5-9.4 s with 'Stopping' shown, the car up to 47 m past the target.)"""
+
+  def _approach_then(self, pattern, a_toward, frames=60):
+    self.sim = Sim(self.sa, v0=11.0, stop_at=60.0)
+    self.run_until(lambda r: r['state'] == State.APPROACH and r['v'] < 9.0)
+    a = self.sim.records[-1]['a_model']
+    recs = []
+    for k in range(1, frames + 1):
+      a = SMOOTH * a_toward + (1.0 - SMOOTH) * a
+      if pattern(k):  # the next light, 40 m beyond ours
+        cam_x = self.sim.x - self.sim.v * self.sim.eof_age_s
+        self.sim.plan_override = far_stop_plan(self.sim.v, self.sim.stop_at + 40.0 - cam_x)
+      else:
+        self.sim.plan_override = no_stop_plan(self.sim.v)
+      self.sim.a_model_override = a
+      rec = self.step()
+      recs.append(rec)
+      for e, _, _ in rec['entries']:
+        assert e >= a - C.DROP_CLAMP - EPS, (k, e, a)  # never harsher than the model once our stop is missing
+      if rec['state'] not in (State.APPROACH, State.FINAL):
+        return k, recs
+    return None, recs
+
+  def test_next_light_and_no_stop_alternating_after_a_green_ramps_out(self):
+    for name, pattern in (("1:1", lambda k: k % 2 == 1), ("3:1", lambda k: k % 4 != 0), ("9:1", lambda k: k % 10 != 0)):
+      self.setUp()
+      k, recs = self._approach_then(pattern, a_toward=0.6)
+      assert k is not None and k <= 20, (name, k)
+      assert recs[-1]['state'] == State.RAMP_OUT, (name, recs[-1]['state'])
+
+  def test_the_next_light_alone_while_the_model_brakes_is_a_new_stop(self):
+    k, recs = self._approach_then(lambda k: True, a_toward=-0.5)
+    assert k is not None and k * 0.05 <= C.NEW_STOP_S + 0.05 + EPS, k
+    assert recs[-1]['state'] == State.RAMP_OUT and recs[-1]['reason'] == Reason.NEW_STOP
 
 
 class TestSettingOff(_Base):

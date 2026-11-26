@@ -53,7 +53,7 @@ RAMP_OUT_JERK = 1.5         # RAMP_OUT rises at this rate instead of deleting a 
 RAMP_END_MARGIN = 0.05      # RAMP_OUT ends once the entry is this far above the stock minimum: it no longer sets the output, so no step
 RAMP_FAST_MAX = 4.0         # a green in low-speed FINAL ramps out within GO_CONFIRM_S, at most this fast (Toyota's own accel rate limit)
 
-# --- plan dropout (no planned stop in a frame) during APPROACH/FINAL ---
+# --- plan dropout (no planned stop in a frame, or only one more than NEW_STOP_M beyond the target) during APPROACH/FINAL ---
 DROP_CLAMP = 0.2            # once the plan has lost the stop, never brake harder than the model's action minus this
 DROP_GREEN_ACCEL = -0.2     # green needs the model no longer braking (action at or above this) ...
 DROP_GREEN_S = 0.5          # ... and our stop missing this long ...
