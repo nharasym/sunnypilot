@@ -271,7 +271,7 @@ class StopAssist:
     # 1. never brake in a mode where the planner ignores the model (e.g. upstream re-gating it behind Experimental)
     e2e = [float(c[0]) for c in candidates if c[1] == SOURCE_E2E]
     if not e2e:
-      return self._end(State.IDLE, Reason.NO_MODEL_CANDIDATE)
+      return self._cut(Reason.NO_MODEL_CANDIDATE)
     e2e_accel = min(e2e)
 
     # 2. the accelerator overrides; no re-arm until RELEASED clears
@@ -286,7 +286,7 @@ class StopAssist:
 
     # 4. a gap in the model stream
     if f.gap:
-      return self._end(State.IDLE, Reason.MODEL_GAP)
+      return self._cut(Reason.MODEL_GAP)
 
     # 5. big <-> small model switch (the arming block is set in _read_frame); a hold is kept
     if f.switched:
@@ -509,6 +509,13 @@ class StopAssist:
       self._released_s0 = f.s
       self._released_t0 = f.t
     return self._end(State.RELEASED, reason)
+
+  def _cut(self, reason: int) -> list:
+    """No entry this frame (no model candidate, a model gap): an episode ends at once. RELEASED is kept: the light
+    the driver took with the accelerator must not be re-armed by a hiccup."""
+    if self._state == State.RELEASED:
+      return []
+    return self._end(State.IDLE, reason)
 
   def _end(self, state: int, reason: int) -> list:
     """Leave the episode at once (no ramp); with the setting off every end is OFF."""

@@ -511,6 +511,40 @@ class TestDropoutNearTheStop(_Base):
       assert rec['state'] == State.RAMP_OUT and rec['reason'] == Reason.GREEN and k <= 4, (where, k, rec['state'])
 
 
+class TestReleasedSurvivesHiccups(_Base):
+  """After the accelerator ('I'll take this light') nothing re-arms on that light until RELEASED clears, not even
+  after a model hiccup or one frame without the model's candidate."""
+
+  def _released(self):
+    self.sim = Sim(self.sa, v0=13.0, stop_at=95.0)
+    self.until_state(State.APPROACH)
+    self.sim.gas = True
+    for _ in range(3):
+      assert self.step()['state'] == State.RELEASED
+    self.sim.gas = False
+    for _ in range(10):
+      assert self.step()['state'] == State.RELEASED
+
+  def _no_rearm(self):
+    for _ in range(200):  # the same light is still ahead and the model still plans it
+      rec = self.step()
+      assert rec['state'] == State.RELEASED and rec['entries'] == [], rec['state']
+
+  def test_a_model_gap_keeps_released(self):
+    self._released()
+    rec = self.step(dt_ns=int((C.MODEL_GAP_S + 0.05) * 1e9))
+    assert rec['state'] == State.RELEASED and rec['entries'] == []
+    self._no_rearm()
+
+  def test_a_frame_without_the_model_candidate_keeps_released(self):
+    self._released()
+    self.sim.with_e2e = False
+    rec = self.step()
+    assert rec['state'] == State.RELEASED and rec['entries'] == []
+    self.sim.with_e2e = True
+    self._no_rearm()
+
+
 class TestInvariantsRandom(unittest.TestCase):
   def test_random_frames_never_raise_and_entries_are_valid(self):
     rng = random.Random(1126)
