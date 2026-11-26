@@ -13,6 +13,7 @@ from types import SimpleNamespace as NS
 
 import numpy as np
 
+from openpilot.cereal import custom
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E, StopAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import constants as C
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import State, Reason
@@ -21,7 +22,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers i
   DT_NS, EPS, FakeEvents, FakeParams, Sim, make_sm, plan_cruise, plan_standstill_go, plan_stop, stock_candidates,
 )
 
-EVENT = 28  # custom.OnroadEventSP.EventName.stopAssist (pinned in test_telemetry_and_events)
+EVENT = int(custom.OnroadEventSP.EventName.stopAssist)  # the number itself is pinned in test_telemetry_and_events
 HOLD_ENTRY = (0.0, SOURCE_E2E, True)
 SMOOTH = 1.0 - math.exp(-0.05 / 0.3)  # modeld smooths the published action over 0.3 s
 
