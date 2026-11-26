@@ -396,7 +396,7 @@ class StopAssist:
       self._new_stop_t0 = None
       why = self._dropout_end(f)
       if why is not None:
-        return self._ramp(why, f, e2e_accel)
+        return self._ramp(why, f, e2e_accel, clamp=True)
       tr.update(None, f.s, f.dt)  # keeps the target; may record the anchor
 
     if tr.target - f.s <= C.FREEZE_M or f.v < C.FREEZE_V:
@@ -427,7 +427,7 @@ class StopAssist:
       if f.s_raw is None:
         why = self._dropout_end(f)
         if why is not None:
-          return self._ramp(why, f, e2e_accel)
+          return self._ramp(why, f, e2e_accel, clamp=True)
         lost = True
       else:
         self._drop_a0 = None
@@ -452,8 +452,11 @@ class StopAssist:
 
   def _ramp_out(self, f: _Frame, e2e_accel: float) -> list:
     a = min(self._a_cmd + C.RAMP_OUT_JERK * self._dt(f), C.A_MAX)
-    if (self._ramp_clamp or f.s_raw is None) and f.a_model - C.DROP_CLAMP > a:
-      a = f.a_model - C.DROP_CLAMP  # the plan has lost the stop: never harsher than the model's action - DROP_CLAMP
+    # the plan has lost the stop (a ramp that began in a dropout, or no planned stop at a speed where that test means
+    # something): never harsher than the model's action - DROP_CLAMP. Below LOW_V_GO the plan is degenerate: no clamp.
+    lost = self._ramp_clamp or (f.s_raw is None and f.v >= C.LOW_V_GO)
+    if lost and f.a_model - C.DROP_CLAMP > a:
+      a = f.a_model - C.DROP_CLAMP
     a = _clip(a, -C.A_CAP, C.A_MAX)
     self._a_cmd = a
     if a >= e2e_accel + C.RAMP_END_MARGIN or a >= C.RAMP_END_ACCEL:
@@ -490,13 +493,14 @@ class StopAssist:
     self._a_need = need
     return [self._entry(a, f.v < C.STOP_V and a < C.GO_ACCEL)]
 
-  def _begin_ramp(self, reason: int) -> None:
+  def _begin_ramp(self, reason: int, clamp: bool = False) -> None:
+    """clamp: the ramp continues a plan dropout, so the dropout clamp stays on for the whole ramp."""
     self._state = State.RAMP_OUT
     self._reason = reason
-    self._ramp_clamp = reason in (Reason.GREEN, Reason.STOP_LOST)
+    self._ramp_clamp = clamp
 
-  def _ramp(self, reason: int, f: _Frame, e2e_accel: float) -> list:
-    self._begin_ramp(reason)
+  def _ramp(self, reason: int, f: _Frame, e2e_accel: float, clamp: bool = False) -> list:
+    self._begin_ramp(reason, clamp)
     return self._ramp_out(f, e2e_accel)
 
   def _release(self, f: _Frame, reason: int) -> list:
