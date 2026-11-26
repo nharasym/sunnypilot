@@ -103,6 +103,28 @@ class TestStockPlannerContract(unittest.TestCase):
     assert "longitudinalPlan.longitudinalPlanSource = self.mpc.source" in ast.unparse(publish)
 
 
+class TestPackageImports(unittest.TestCase):
+  """The package imports only cheap, Mac-importable modules: never long_mpc, a planner or longcontrol."""
+  ALLOWED = {"math", "numpy", "openpilot.cereal", "openpilot.common.params", "openpilot.common.swaglog",
+             "openpilot.common.realtime", "openpilot.common.constants", "openpilot.sunnypilot"}
+  PACKAGE = "openpilot.sunnypilot.selfdrive.controls.lib.stop_assist"
+
+  def test_allowed_imports_only(self):
+    pkg_dir = os.path.join(OPENPILOT, "sunnypilot", "selfdrive", "controls", "lib", "stop_assist")
+    for name in sorted(os.listdir(pkg_dir)):
+      if not name.endswith(".py"):
+        continue
+      for node in ast.walk(ast.parse(_read(os.path.join(pkg_dir, name)))):
+        if isinstance(node, ast.Import):
+          mods = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+          mods = [node.module or ""]
+        else:
+          continue
+        for mod in mods:
+          assert mod in self.ALLOWED or mod == self.PACKAGE or mod.startswith(self.PACKAGE + "."), (name, mod)
+
+
 class TestSunnypilotPlannerContract(unittest.TestCase):
   def setUp(self):
     self.src = _read(SP)
