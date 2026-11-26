@@ -50,8 +50,7 @@ A_MAX = 2.0                 # no entry above ACCEL_MAX (opendbc car/interfaces.p
 JERK_IN = 1.0               # slew toward more braking: gentler than his own 1.4-1.7 m/s^3 (family comfort)
 JERK_OUT = 2.0              # slew toward less braking
 RAMP_OUT_JERK = 1.5         # RAMP_OUT rises at this rate instead of deleting a braking entry in one frame
-RAMP_END_MARGIN = 0.05      # RAMP_OUT ends once the entry is this far above the model's candidate ...
-RAMP_END_ACCEL = 0.5        # ... or at this accel, whichever first: from then the entry could no longer be the minimum
+RAMP_END_MARGIN = 0.05      # RAMP_OUT ends once the entry is this far above the stock minimum: it no longer sets the output, so no step
 
 # --- plan dropout (no planned stop in a frame) during APPROACH/FINAL ---
 DROP_CLAMP = 0.2            # once the plan has lost the stop, never brake harder than the model's action minus this

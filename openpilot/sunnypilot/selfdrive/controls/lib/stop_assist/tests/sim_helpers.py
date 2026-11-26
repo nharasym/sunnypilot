@@ -144,6 +144,8 @@ class Sim:
     self.big = False
     self.lead = None
     self.with_e2e = True
+    self.mpc_accel = 0.6     # the stock MPC and cruise candidates (no lead: both want to keep speed)
+    self.cruise_accel = 0.4
     # per-frame overrides of the model
     self.a_model_override = None
     self.model_stop_override = None
@@ -180,7 +182,8 @@ class Sim:
     sm = make_sm(self.t, v_in, x, v, a_model, model_stop, eof_age_s=self.eof_age_s, big=self.big,
                  standstill=v_in < 1e-3, gas=self.gas, brake=self.brake, long_active=self.long_active,
                  enabled=self.enabled, force_decel=self.force_decel, lead=self.lead)
-    cands = stock_candidates(v_in, a_model, model_stop, with_e2e=self.with_e2e)
+    cands = stock_candidates(v_in, a_model, model_stop, mpc_accel=self.mpc_accel, cruise_accel=self.cruise_accel,
+                             with_e2e=self.with_e2e)
     stock_min = min(float(c[0]) for c in cands)
     entries = self.sa.update(sm, cands)
     allc = cands + list(entries)

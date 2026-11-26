@@ -288,10 +288,9 @@ class StopAssist:
 
   def _run(self, f: _Frame, candidates) -> list:
     # 1. never brake in a mode where the planner ignores the model (e.g. upstream re-gating it behind Experimental)
-    e2e = [float(c[0]) for c in candidates if c[1] == SOURCE_E2E]
-    if not e2e:
+    if not any(c[1] == SOURCE_E2E for c in candidates):
       return self._cut(Reason.NO_MODEL_CANDIDATE)
-    e2e_accel = min(e2e)
+    stock_min = min(float(c[0]) for c in candidates)  # the planner's output without us
 
     # 2. the accelerator overrides; no re-arm until RELEASED clears
     if f.gas:
@@ -329,17 +328,17 @@ class StopAssist:
     if self._state == State.IDLE:
       return self._idle(f)
     if self._state == State.CONFIRM:
-      return self._confirm(f, candidates, e2e_accel)
+      return self._confirm(f, stock_min)
     if self._state == State.APPROACH:
-      return self._approach(f, e2e_accel)
+      return self._approach(f, stock_min)
     if self._state == State.FINAL:
-      return self._final(f, e2e_accel)
+      return self._final(f, stock_min)
     if self._state == State.HOLD:
       return self._hold(f)
     if self._state == State.RELEASED:
       return self._released(f)
     if self._state == State.RAMP_OUT:
-      return self._ramp_out(f, e2e_accel)
+      return self._ramp_out(f, stock_min)
     return []
 
   # ---------------------------------------------------------------- states
@@ -368,7 +367,7 @@ class StopAssist:
     self._window = [f.s_raw]
     return []
 
-  def _confirm(self, f: _Frame, candidates, e2e_accel: float) -> list:
+  def _confirm(self, f: _Frame, stock_min: float) -> list:
     self._window.append(f.s_raw)
     del self._window[:-C.CONFIRM_FRAMES]
     points = [p for p in self._window if p is not None]
@@ -390,14 +389,14 @@ class StopAssist:
 
     # confirmed: start from the planner's current output so the first entry is no step
     self._tracker.start(points, self._offset_m, f.s)
-    self._a_cmd = _clip(min(float(c[0]) for c in candidates), -C.A_CAP, C.A_MAX)
+    self._a_cmd = _clip(stock_min, -C.A_CAP, C.A_MAX)
     self._state = State.APPROACH
-    return self._approach(f, e2e_accel, seeded=True)
+    return self._approach(f, stock_min, seeded=True)
 
-  def _approach(self, f: _Frame, e2e_accel: float, seeded: bool = False) -> list:
+  def _approach(self, f: _Frame, stock_min: float, seeded: bool = False) -> list:
     tr = self._tracker
     if blocking_lead(f.lead_present, f.lead_drel, f.lead_vrel, tr.target - f.s):
-      return self._ramp(Reason.LEAD, f, e2e_accel)
+      return self._ramp(Reason.LEAD, f, stock_min)
 
     lost = f.s_raw is None
     if not lost:
@@ -406,7 +405,7 @@ class StopAssist:
         if self._new_stop_t0 is None:
           self._new_stop_t0 = f.t
         if f.t - self._new_stop_t0 >= _ns(C.NEW_STOP_S):
-          return self._ramp(Reason.NEW_STOP, f, e2e_accel)
+          return self._ramp(Reason.NEW_STOP, f, stock_min)
       else:
         self._new_stop_t0 = None
       if not seeded:
@@ -415,7 +414,7 @@ class StopAssist:
       self._new_stop_t0 = None
       why = self._dropout_end(f)
       if why is not None:
-        return self._ramp(why, f, e2e_accel, clamp=True)
+        return self._ramp(why, f, stock_min, clamp=True)
       tr.update(None, f.s, f.dt)  # keeps the target; may record the anchor
 
     if tr.target - f.s <= C.FREEZE_M or f.v < C.FREEZE_V:
@@ -423,7 +422,7 @@ class StopAssist:
       tr.freeze()
     return self._law(f, clamp=lost)
 
-  def _final(self, f: _Frame, e2e_accel: float) -> list:
+  def _final(self, f: _Frame, stock_min: float) -> list:
     if f.standstill:
       self._state = State.HOLD
       self._hold_t0 = f.t
@@ -438,7 +437,7 @@ class StopAssist:
         if self._go_t0 is None:
           self._go_t0 = f.t
         if f.t - self._go_t0 >= _ns(C.LOW_V_GO_S):
-          return self._ramp(Reason.GREEN, f, e2e_accel)
+          return self._ramp(Reason.GREEN, f, stock_min)
       else:
         self._go_t0 = None
     else:
@@ -446,7 +445,7 @@ class StopAssist:
       if f.s_raw is None:
         why = self._dropout_end(f)
         if why is not None:
-          return self._ramp(why, f, e2e_accel, clamp=True)
+          return self._ramp(why, f, stock_min, clamp=True)
         lost = True
       else:
         self._drop_a0 = None
@@ -469,7 +468,7 @@ class StopAssist:
       self._state = State.IDLE
     return []
 
-  def _ramp_out(self, f: _Frame, e2e_accel: float) -> list:
+  def _ramp_out(self, f: _Frame, stock_min: float) -> list:
     a = min(self._a_cmd + C.RAMP_OUT_JERK * self._dt(f), C.A_MAX)
     # the plan has lost the stop (a ramp that began in a dropout, or no planned stop at a speed where that test means
     # something): never harsher than the model's action - DROP_CLAMP. Below LOW_V_GO the plan is degenerate: no clamp.
@@ -478,7 +477,8 @@ class StopAssist:
       a = f.a_model - C.DROP_CLAMP
     a = _clip(a, -C.A_CAP, C.A_MAX)
     self._a_cmd = a
-    if a >= e2e_accel + C.RAMP_END_MARGIN or a >= C.RAMP_END_ACCEL:
+    # ends once the entry no longer sets the planner's output, so ending it is no step (A_MAX: it can rise no more)
+    if a >= stock_min + C.RAMP_END_MARGIN or a >= C.A_MAX:
       return self._end(State.IDLE, self._reason)
     return [self._entry(a, False)]
 
@@ -519,9 +519,9 @@ class StopAssist:
     self._reason = reason
     self._ramp_clamp = clamp
 
-  def _ramp(self, reason: int, f: _Frame, e2e_accel: float, clamp: bool = False) -> list:
+  def _ramp(self, reason: int, f: _Frame, stock_min: float, clamp: bool = False) -> list:
     self._begin_ramp(reason, clamp)
-    return self._ramp_out(f, e2e_accel)
+    return self._ramp_out(f, stock_min)
 
   def _release(self, f: _Frame, reason: int) -> list:
     if self._state != State.RELEASED:

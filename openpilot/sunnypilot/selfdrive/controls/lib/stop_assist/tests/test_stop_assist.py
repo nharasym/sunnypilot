@@ -511,6 +511,28 @@ class TestDropoutNearTheStop(_Base):
       assert rec['state'] == State.RAMP_OUT and rec['reason'] == Reason.GREEN and k <= 4, (where, k, rec['state'])
 
 
+class TestRampEnd(_Base):
+  def test_ends_without_a_step_at_a_launch(self):
+    # launch-like stock candidates (MPC 1.5, cruise 2.0): as built the ramp stopped at +0.5 and the planner output
+    # then jumped to the stock minimum in one frame (+0.51 m/s^2)
+    self.until_state(State.FINAL)
+    self.run_until(lambda r: r['v'] < 1.2)
+    self.sim.mpc_accel, self.sim.cruise_accel = 1.5, 2.0
+    self.sim.green = True
+    self.sim.a_model_override = 1.0
+    prev = self.sim.records[-1]
+    for _ in range(80):
+      rec = self.step()
+      if prev['entries'] and not rec['entries']:
+        break
+      prev = rec
+    else:
+      raise AssertionError("the ramp never ended")
+    assert prev['state'] == State.RAMP_OUT and rec['state'] == State.IDLE
+    step = rec['out_a'] - prev['out_a']
+    assert step <= max(rec['stock_min'] - prev['stock_min'], 0.0) + C.RAMP_OUT_JERK * 0.05 + EPS, step
+
+
 class TestReleasedSurvivesHiccups(_Base):
   """After the accelerator ('I'll take this light') nothing re-arms on that light until RELEASED clears, not even
   after a model hiccup or one frame without the model's candidate."""
