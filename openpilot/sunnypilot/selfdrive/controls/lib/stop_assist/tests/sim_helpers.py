@@ -16,6 +16,7 @@ import numpy as np
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import constants as C
+from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import State
 
 T_IDXS = np.array(ModelConstants.T_IDXS, dtype=np.float64)
 DT_S = 0.05
@@ -222,8 +223,9 @@ class EntryChecker:
   """Invariants on every returned entry, checked frame by frame (no tearDown: the device shim never calls it):
   at most one entry; exact types (float, int, bool); source SOURCE_E2E; accel within [-A_CAP, A_MAX]. Between
   consecutive braking entries: never more than JERK_IN toward more braking, and at most JERK_OUT toward less braking
-  unless the dropout clamp (never harsher than the model's action - DROP_CLAMP) lifted it. The first entry after
-  none is no step below the stock output. Hold entries (0.0, stop) at a standstill are a stop request, not a slew."""
+  unless the dropout clamp (never harsher than the model's action - DROP_CLAMP) lifted it or a ramp-out runs at up to
+  RAMP_FAST_MAX (a green in low-speed FINAL). The first entry after none is no step below the stock output. Hold
+  entries (0.0, stop) at a standstill are a stop request, not a slew."""
 
   def __init__(self):
     self.prev = None
@@ -246,7 +248,8 @@ class EntryChecker:
       da = a - self.prev['a']
       assert da >= -C.JERK_IN * rec['dt'] - EPS, ("braking built faster than JERK_IN", da)
       clamped = abs(a - (rec['a_model'] - C.DROP_CLAMP)) <= 1e-4
-      assert da <= C.JERK_OUT * rec['dt'] + EPS or clamped, ("braking released faster than JERK_OUT", da)
+      limit = C.RAMP_FAST_MAX if rec['state'] == State.RAMP_OUT else C.JERK_OUT
+      assert da <= limit * rec['dt'] + EPS or clamped, ("braking released too fast", rec['state'], da)
     self.prev = {'a': a, 'hold': hold}
 
 

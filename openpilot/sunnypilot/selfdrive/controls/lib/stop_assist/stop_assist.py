@@ -20,9 +20,10 @@ LongitudinalPlanSP.stopAssist. Neither raises. Any exception turns the feature o
 stop being held then stays held until the accelerator, the brake or a disengage.
 
 States: OFF -> IDLE -> CONFIRM -> APPROACH -> FINAL -> HOLD -> RELEASED -> IDLE. RAMP_OUT eases an entry out
-instead of deleting it; only the accelerator, the brake, a disengage or a model gap end an entry at once (as stock).
-With the setting off and nothing kept, update() reads nothing from sm. Never import long_mpc, either longitudinal
-planner or longcontrol here: the Mac cannot import the compiled MPC.
+instead of deleting it; only the accelerator, the brake, a disengage or a model gap end an entry at once (as stock),
+and the model's go at a standstill (a stopped car has no braking to ease). With the setting off and nothing kept,
+update() reads nothing from sm. Never import long_mpc, either longitudinal planner or longcontrol here: the Mac
+cannot import the compiled MPC.
 """
 import math
 
@@ -129,6 +130,7 @@ class StopAssist:
     self._go_t0: int | None = None
     self._hold_t0 = 0
     self._ramp_clamp = False
+    self._ramp_rate = C.RAMP_OUT_JERK
     self._released_s0 = 0.0
     self._released_t0 = 0
 
@@ -429,26 +431,27 @@ class StopAssist:
       self._go_t0 = None
       return self._hold(f)
 
-    lost = False
     if f.v < C.LOW_V_GO:
-      # the plan minimum is the car's own speed down here: green is the model's go, held
+      # the plan minimum is the car's own speed down here: green is the model's go, held LOW_V_GO_S. While it is
+      # pending the command may ease but never brakes harder, and the green ramps out within GO_CONFIRM_S.
       self._drop_a0 = None
-      if model_go(f.model_stop, f.a_model, f.v):
-        if self._go_t0 is None:
-          self._go_t0 = f.t
-        if f.t - self._go_t0 >= _ns(C.LOW_V_GO_S):
-          return self._ramp(Reason.GREEN, f, stock_min)
-      else:
+      if not model_go(f.model_stop, f.a_model, f.v):
         self._go_t0 = None
+        return self._law(f, clamp=False)
+      if self._go_t0 is None:
+        self._go_t0 = f.t
+      if f.t - self._go_t0 >= _ns(C.LOW_V_GO_S):
+        return self._ramp(Reason.GREEN, f, stock_min, within_s=C.GO_CONFIRM_S)
+      return self._law(f, clamp=False, deepen=False)
+
+    self._go_t0 = None
+    lost = f.s_raw is None
+    if lost:
+      why = self._dropout_end(f)
+      if why is not None:
+        return self._ramp(why, f, stock_min, clamp=True)
     else:
-      self._go_t0 = None
-      if f.s_raw is None:
-        why = self._dropout_end(f)
-        if why is not None:
-          return self._ramp(why, f, stock_min, clamp=True)
-        lost = True
-      else:
-        self._drop_a0 = None
+      self._drop_a0 = None
     return self._law(f, clamp=lost)
 
   def _hold(self, f: _Frame) -> list:
@@ -469,7 +472,9 @@ class StopAssist:
     return []
 
   def _ramp_out(self, f: _Frame, stock_min: float) -> list:
-    a = min(self._a_cmd + C.RAMP_OUT_JERK * self._dt(f), C.A_MAX)
+    if f.standstill and model_go(f.model_stop, f.a_model, f.v):
+      return self._end(State.IDLE, self._reason)  # stopped and the model asks to go: nothing left to ease
+    a = min(self._a_cmd + self._ramp_rate * self._dt(f), C.A_MAX)
     # the plan has lost the stop (a ramp that began in a dropout, or no planned stop at a speed where that test means
     # something): never harsher than the model's action - DROP_CLAMP. Below LOW_V_GO the plan is degenerate: no clamp.
     lost = self._ramp_clamp or (f.s_raw is None and f.v >= C.LOW_V_GO)
@@ -496,14 +501,16 @@ class StopAssist:
       return Reason.STOP_LOST
     return None
 
-  def _law(self, f: _Frame, clamp: bool) -> list:
-    """Brake steadily to the target: a_law = -min(required_decel, A_CAP), slewed JERK_IN in / JERK_OUT out."""
+  def _law(self, f: _Frame, clamp: bool, deepen: bool = True) -> list:
+    """Brake steadily to the target: a_law = -min(required_decel, A_CAP), slewed JERK_IN in / JERK_OUT out.
+    deepen False: the command may ease toward a_law but never brakes harder (a green is pending)."""
     need = required_decel(f.v, self._tracker.target - f.s)
     a_law = -min(need, C.A_CAP)
     dt = self._dt(f)
     a = self._a_cmd
     if a_law < a:
-      a = max(a_law, a - C.JERK_IN * dt)
+      if deepen:
+        a = max(a_law, a - C.JERK_IN * dt)
     else:
       a = min(a_law, a + C.JERK_OUT * dt)
     if clamp and f.a_model - C.DROP_CLAMP > a:
@@ -513,14 +520,21 @@ class StopAssist:
     self._a_need = need
     return [self._entry(a, f.v < C.STOP_V and a < C.GO_ACCEL)]
 
-  def _begin_ramp(self, reason: int, clamp: bool = False) -> None:
+  def _begin_ramp(self, reason: int, clamp: bool = False, rate: float = C.RAMP_OUT_JERK) -> None:
     """clamp: the ramp continues a plan dropout, so the dropout clamp stays on for the whole ramp."""
     self._state = State.RAMP_OUT
     self._reason = reason
     self._ramp_clamp = clamp
+    self._ramp_rate = rate
 
-  def _ramp(self, reason: int, f: _Frame, stock_min: float, clamp: bool = False) -> list:
-    self._begin_ramp(reason, clamp)
+  def _ramp(self, reason: int, f: _Frame, stock_min: float, clamp: bool = False, within_s: float | None = None) -> list:
+    """within_s: rise fast enough to reach the stock minimum in that time (from RAMP_OUT_JERK up to RAMP_FAST_MAX)."""
+    rate = C.RAMP_OUT_JERK
+    if within_s is not None:
+      fast = (stock_min + C.RAMP_END_MARGIN - self._a_cmd) / within_s
+      if math.isfinite(fast):
+        rate = _clip(fast, C.RAMP_OUT_JERK, C.RAMP_FAST_MAX)
+    self._begin_ramp(reason, clamp, rate)
     return self._ramp_out(f, stock_min)
 
   def _release(self, f: _Frame, reason: int) -> list:
@@ -549,6 +563,7 @@ class StopAssist:
     self._drop_a0 = None
     self._go_t0 = None
     self._ramp_clamp = False
+    self._ramp_rate = C.RAMP_OUT_JERK
     return []
 
   @staticmethod

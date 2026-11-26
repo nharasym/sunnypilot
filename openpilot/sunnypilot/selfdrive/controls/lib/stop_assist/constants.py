@@ -51,6 +51,7 @@ JERK_IN = 1.0               # slew toward more braking: gentler than his own 1.4
 JERK_OUT = 2.0              # slew toward less braking
 RAMP_OUT_JERK = 1.5         # RAMP_OUT rises at this rate instead of deleting a braking entry in one frame
 RAMP_END_MARGIN = 0.05      # RAMP_OUT ends once the entry is this far above the stock minimum: it no longer sets the output, so no step
+RAMP_FAST_MAX = 4.0         # a green in low-speed FINAL ramps out within GO_CONFIRM_S, at most this fast (Toyota's own accel rate limit)
 
 # --- plan dropout (no planned stop in a frame) during APPROACH/FINAL ---
 DROP_CLAMP = 0.2            # once the plan has lost the stop, never brake harder than the model's action minus this

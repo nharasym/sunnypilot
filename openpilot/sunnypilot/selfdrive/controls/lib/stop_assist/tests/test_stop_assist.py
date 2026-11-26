@@ -511,6 +511,91 @@ class TestDropoutNearTheStop(_Base):
       assert rec['state'] == State.RAMP_OUT and rec['reason'] == Reason.GREEN and k <= 4, (where, k, rec['state'])
 
 
+class TestLowSpeedGreen(_Base):
+  """A green while FINAL brakes below LOW_V_GO. The go is confirmed over LOW_V_GO_S, meanwhile the command may only
+  ease; the ramp-out then reaches the stock minimum within GO_CONFIRM_S (at most RAMP_FAST_MAX), and a car that stops
+  meanwhile is let go at once. The restraint after the model's go never exceeds what a held stop gets (HOLD_MIN_S +
+  GO_CONFIRM_S). As built, a deep command kept the car stopped with a negative target until 2.15 s after the go."""
+  BOUND_S = C.HOLD_MIN_S + C.GO_CONFIRM_S
+
+  @staticmethod
+  def _green(sim):
+    """Turn the light green; the frames until Stop Assist no longer restrains the car (no hold, and the entry gone or
+    at or above the stock minimum)."""
+    sim.green = True
+    t_go = sim.t
+    recs = []
+    for _ in range(200):
+      rec = sim.step()
+      recs.append(rec)
+      e = rec['entries'][0] if rec['entries'] else None
+      if e is None or (e[0] >= rec['stock_min'] - EPS and not e[2]):
+        return t_go, recs
+    raise AssertionError("still restraining 10 s after the go")
+
+  def test_deep_braking_at_a_crawl_lets_go_quickly(self):
+    # a slow car (lag 0.44 s) and a weak, late model: FINAL is at the -2.5 cap at 1.4 m/s when the light turns green
+    sa, _, _ = new_sa(offset_ft=2)
+    sim = Sim(sa, v0=13.75, stop_at=56.64, model_scale=0.41, lag_s=0.44)
+    sim.eof_age_s = 0.12
+    rec = sim.run_until(lambda r: r['state'] == State.FINAL and 0.3 < r['v'] < 1.4 and bool(r['entries']) and
+                        r['entries'][0][0] <= -2.0, 3000)
+    a_go = rec['entries'][0][0]
+    t_go, recs = self._green(sim)
+    assert (recs[-1]['t'] - t_go) / 1e9 <= C.LOW_V_GO_S + C.GO_CONFIRM_S + 0.05 + EPS, (recs[-1]['t'] - t_go) / 1e9
+    seq = [a_go] + [r['entries'][0][0] for r in recs if r['entries']]
+    assert all(b >= a - EPS for a, b in zip(seq[:-1], seq[1:], strict=True)), seq  # never brakes harder after the go
+    assert any(r['state'] == State.RAMP_OUT and r['reason'] == Reason.GREEN for r in recs)
+    assert not any(r['state'] == State.HOLD for r in recs)
+
+  def test_a_ramp_out_at_a_standstill_ends_on_the_models_go(self):
+    self.until_state(State.FINAL)
+    self.run_until(lambda r: r['v'] < 1.0)
+    self.sim.green = True
+    self.until_state(State.RAMP_OUT, 20)
+    self.sim.v = 0.0  # the car has come to a standstill and the model asks to go: nothing left to ease
+    rec = self.step()
+    assert rec['entries'] == [] and rec['state'] == State.IDLE and rec['reason'] == Reason.GREEN
+
+  def test_a_ramp_out_at_a_standstill_keeps_easing_while_the_model_says_stop(self):
+    self.until_state(State.FINAL)
+    self.run_until(lambda r: r['v'] < 1.0)
+    self.sim.big = True  # a model switch ramps out at once
+    rec = self.step()
+    assert rec['state'] == State.RAMP_OUT and rec['entries']
+    self.sim.v = 0.0
+    a = rec['entries'][0][0]
+    rec = self.step()
+    assert rec['state'] == State.RAMP_OUT and rec['entries'] and rec['entries'][0][0] > a  # no step, still easing
+
+  def test_sweep_of_greens_at_a_crawl(self):
+    rng = random.Random(1127)
+    n, worst = 0, 0.0
+    for _ in range(150):
+      sa, _, _ = new_sa(offset_ft=rng.randint(0, 10))
+      sim = Sim(sa, v0=rng.uniform(4.0, 18.0), stop_at=rng.uniform(25.0, 100.0), model_scale=rng.uniform(0.5, 1.1),
+                lag_s=rng.uniform(0.15, 0.4))
+      sim.eof_age_s = rng.uniform(0.03, 0.12)
+      v_go = rng.uniform(0.3, C.LOW_V_GO)
+      rec = None
+      for _ in range(4000):
+        rec = sim.step()
+        if rec['state'] == State.HOLD or (rec['state'] == State.FINAL and 0.3 < rec['v'] < v_go):
+          break
+      if rec['state'] != State.FINAL:
+        continue
+      v_at, a_at = sim.v, rec['entries'][0][0]
+      t_go, recs = self._green(sim)
+      n += 1
+      worst = max(worst, (recs[-1]['t'] - t_go) / 1e9)
+      moving = [r for r in recs if r['state'] != State.HOLD and r['entries']]
+      assert all(b['entries'][0][0] >= a['entries'][0][0] - EPS for a, b in zip(moving[:-1], moving[1:], strict=True))
+      if v_at >= 0.7 and a_at >= -2.0:  # slower or deeper, the car's own lag stops it whatever the entry does
+        assert min(r['v'] for r in recs) > 0.0, (v_at, a_at)
+    assert n >= 60, n
+    assert worst <= self.BOUND_S + EPS, worst
+
+
 class TestRampEnd(_Base):
   def test_ends_without_a_step_at_a_launch(self):
     # launch-like stock candidates (MPC 1.5, cruise 2.0): as built the ramp stopped at +0.5 and the planner output
@@ -530,7 +615,7 @@ class TestRampEnd(_Base):
       raise AssertionError("the ramp never ended")
     assert prev['state'] == State.RAMP_OUT and rec['state'] == State.IDLE
     step = rec['out_a'] - prev['out_a']
-    assert step <= max(rec['stock_min'] - prev['stock_min'], 0.0) + C.RAMP_OUT_JERK * 0.05 + EPS, step
+    assert step <= max(rec['stock_min'] - prev['stock_min'], 0.0) + C.RAMP_FAST_MAX * 0.05 + EPS, step
 
 
 class TestReleasedSurvivesHiccups(_Base):
