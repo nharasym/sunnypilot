@@ -209,6 +209,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   aTarget @5 :Float32;
   events @6 :List(OnroadEventSP.Event);
   e2eAlerts @7 :E2eAlerts;
+  stopAssist @8 :StopAssist;  # HL-FEAT(stop-assist)
 
   deprecated :group {
     dec @0 :DynamicExperimentalControlDEPRECATED;
@@ -315,6 +316,53 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
     greenLightAlert @0 :Bool;
     leadDepartAlert @1 :Bool;
   }
+
+  # HL-FEAT(stop-assist): fork-owned telemetry of openpilot/sunnypilot/selfdrive/controls/lib/stop_assist,
+  # written every planner frame (also while off). Append fields only; never renumber.
+  struct StopAssist {
+    state @0 :State;
+    enabled @1 :Bool;         # the StopAssistLights setting
+    active @2 :Bool;          # an entry was returned to the planner this frame
+    offsetM @3 :Float32;      # applied offset, m
+    remainingM @4 :Float32;   # target minus odometer, m (0 when there is no target)
+    planStopM @5 :Float32;    # this frame's planned stop distance, m (-1 if none)
+    aCandidate @6 :Float32;   # accel of the returned entry, m/s^2 (0 when none)
+    aNeed @7 :Float32;        # the control law's required deceleration (positive), m/s^2
+    shouldStop @8 :Bool;      # stop flag of the returned entry
+    modelAccel @9 :Float32;   # modelV2.action.desiredAcceleration, m/s^2
+    holdS @10 :Float32;       # time in HOLD, s
+    reason @11 :Reason;       # why the last episode ended or an arm was refused
+    modelBig @12 :Bool;       # modelV2.big
+
+    enum State {
+      off @0;
+      idle @1;
+      confirm @2;
+      approach @3;
+      final @4;
+      hold @5;
+      released @6;
+      rampOut @7;
+      faulted @8;
+    }
+
+    enum Reason {
+      none @0;
+      green @1;
+      stopLost @2;
+      lead @3;
+      gas @4;
+      brake @5;
+      disengaged @6;
+      settingOff @7;
+      modelGap @8;
+      modelSwitch @9;
+      newStop @10;
+      tooLate @11;
+      fault @12;
+      noModelCandidate @13;
+    }
+  }
 }
 
 struct OnroadEventSP @0xda96579883444c35 {
@@ -365,6 +413,7 @@ struct OnroadEventSP @0xda96579883444c35 {
     bigModelReady @25;
     bsmApproaching @26;
     audioUnavailable @27;  # HL-FIX(audio-retry)
+    stopAssist @28;  # HL-FEAT(stop-assist)
   }
 }
 

@@ -2454,6 +2454,41 @@
               "equals": true
             }
           ]
+        },
+        {
+          "key": "StopAssistLights",
+          "widget": "toggle",
+          "title": "Stop Assist: Lights and Crosswalks",
+          "description": "When openpilot controls gas and brakes and plans to stop with no car ahead (red lights, crosswalks), it locks the stop point, brakes steadily to stop there, earlier by the distance below, and holds the stop until openpilot wants to go. It does not make braking start earlier. Your pedals always override.",
+          "enablement": [
+            {
+              "type": "capability",
+              "field": "has_longitudinal_control",
+              "equals": true
+            },
+            {
+              "type": "param",
+              "key": "ToyotaEnforceStockLongitudinal",
+              "equals": false
+            }
+          ]
+        },
+        {
+          "key": "StopAssistLightsOffsetFt",
+          "widget": "option",
+          "title": "Stop Assist: Stop Earlier By",
+          "description": "Extra distance before the point openpilot aims for. 0 = about 1 ft before openpilot's own stop point, which on past drives was already 3-5 ft earlier than today's stops. Default 3 ft.",
+          "min": 0,
+          "max": 10,
+          "step": 1,
+          "unit": "ft",
+          "enablement": [
+            {
+              "type": "param",
+              "key": "StopAssistLights",
+              "equals": true
+            }
+          ]
         }
       ]
     }

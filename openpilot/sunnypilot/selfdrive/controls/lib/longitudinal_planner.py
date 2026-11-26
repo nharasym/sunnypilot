@@ -15,6 +15,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAle
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.smart_cruise_control import SmartCruiseControl
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import SpeedLimitAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
+from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import StopAssist  # HL-FEAT(stop-assist)
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 
@@ -24,6 +25,7 @@ LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
 class LongitudinalPlannerSP:
   def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP, mpc):
     self.events_sp = EventsSP()
+    self.stop_assist = StopAssist(CP, self.events_sp)  # HL-FEAT(stop-assist)
     self.resolver = SpeedLimitResolver()
     self.scc = SmartCruiseControl()
     self.resolver = SpeedLimitResolver()
@@ -128,4 +130,5 @@ class LongitudinalPlannerSP:
     e2eAlerts.greenLightAlert = self.e2e_alerts_helper.green_light_alert
     e2eAlerts.leadDepartAlert = self.e2e_alerts_helper.lead_depart_alert
 
+    self.stop_assist.fill(longitudinalPlanSP.stopAssist)  # HL-FEAT(stop-assist)
     pm.send('longitudinalPlanSP', plan_sp_send)
