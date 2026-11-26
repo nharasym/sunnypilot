@@ -49,7 +49,8 @@ def big_model_ready_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.Sub
 
 
 # HL-FEAT(stop-assist): plannerd re-adds stopAssist every frame while Stop Assist brakes for a planned stop and for 3 s
-# after a fault; the text follows longitudinalPlanSP.stopAssist.state. Silent and small. Never raises.
+# after a fault; the text follows longitudinalPlanSP.stopAssist.state. Silent and small. Never raises. "Stopping" is
+# LOWER so it never hides a LOW alert (DM prompts, the steer-required HUD, blind spot) for a whole approach.
 def stop_assist_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   try:
     if sm['longitudinalPlanSP'].stopAssist.state == 'faulted':
@@ -64,7 +65,7 @@ def stop_assist_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMast
     "Stopping",
     "",
     AlertStatus.normal, AlertSize.small,
-    Priority.LOW, VisualAlert.none, AudibleAlert.none, .1)
+    Priority.LOWER, VisualAlert.none, AudibleAlert.none, .1)
 
 
 def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:

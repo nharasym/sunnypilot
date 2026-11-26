@@ -6,11 +6,14 @@ See the LICENSE.md file in the root directory for more details.
 """
 # HL-FEAT(stop-assist): telemetry serialises in every state, the event table entry exists and can only warn, and the
 # fork ordinals are pinned. unittest.TestCase, setUp only (runs under the on-device shim too).
+import copy
 import unittest
 from types import SimpleNamespace as NS
 
 from openpilot.cereal import custom, log
 from openpilot.common.realtime import DT_CTRL
+from openpilot.selfdrive.selfdrived.alertmanager import AlertManager
+from openpilot.selfdrive.selfdrived.events import EVENTS, EventName
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist import SOURCE_E2E, StopAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.stop_assist import Reason, State
 from openpilot.sunnypilot.selfdrive.controls.lib.stop_assist.tests.sim_helpers import FakeEvents, FakeParams, Sim
@@ -120,8 +123,10 @@ class TestEvent(unittest.TestCase):
     a = ev.stop_assist_alert(None, None, sm, False, 0, None)
     assert isinstance(a, Alert)
     assert a.alert_size == ev.AlertSize.small and a.alert_status == ev.AlertStatus.normal
-    assert a.priority == Priority.LOW and a.visual_alert == ev.VisualAlert.none and a.audible_alert == ev.AudibleAlert.none
+    assert a.visual_alert == ev.VisualAlert.none and a.audible_alert == ev.AudibleAlert.none
     assert a.duration == int(0.1 / DT_CTRL)
+    # "Stopping" (a whole approach) is LOWER so it never hides a LOW alert; the one-off fault notice is LOW
+    assert a.priority == (Priority.LOW if a.alert_text_1 == "Stop Assist Off" else Priority.LOWER), (a.alert_text_1, a.priority)
     return a
 
   def test_callback_text_for_every_state(self):
@@ -154,6 +159,33 @@ class TestEvent(unittest.TestCase):
     assert [(a.alert_type, a.alert_text_1) for a in alerts] == [("stopAssist/warning", "Stopping")]
     for et in (ET.NO_ENTRY, ET.SOFT_DISABLE, ET.IMMEDIATE_DISABLE, ET.USER_DISABLE):
       assert not selfdrived_side.contains(et)
+
+  def test_stopping_never_hides_an_active_low_alert(self):
+    # the real selfdrived AlertManager shows the highest (priority, start frame). At LOW, "Stopping" (which starts
+    # with the approach) would replace a DM prompt already showing, and its steerRequired visual (the Toyota
+    # cluster's LDA_ALERT) for the whole approach. A silent LOWEST alert (steering override) must not hide it.
+    msg = custom.LongitudinalPlanSP.new_message()
+    msg.stopAssist.state = 'approach'
+    sm = {'longitudinalPlanSP': msg}
+
+    def stock(name, et):
+      a = copy.copy(EVENTS[getattr(EventName, name)][et])
+      a.alert_type, a.event_type = f"{name}/{et}", et
+      return a
+
+    def stopping():
+      a = copy.copy(ev.stop_assist_alert(None, None, sm, False, 0, None))
+      a.alert_type, a.event_type = "stopAssist/warning", ET.WARNING
+      return a
+
+    for name, et, wins in (("driverUnresponsive1", ET.PERMANENT, True), ("driverDistracted1", ET.PERMANENT, True),
+                           ("preLaneChangeLeft", ET.WARNING, True), ("steerOverride", ET.OVERRIDE_LATERAL, False)):
+      am = AlertManager()
+      for frame in range(1, 301):  # 3 s at 100 Hz; the approach (and "Stopping") starts at 1 s
+        am.add_many(frame, [stock(name, et)] + ([stopping()] if frame >= 100 else []))
+        am.process_alerts(frame, set())
+        expected = f"{name}/{et}" if wins or frame < 100 else "stopAssist/warning"
+        assert am.current_alert.alert_type == expected, (name, frame, am.current_alert.alert_type)
 
   def test_planner_adds_the_event_through_the_real_events_object(self):
     events = ev.EventsSP()
