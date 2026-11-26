@@ -275,6 +275,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
     // HL-FEAT(stock-hud-lat-off): Toyota cluster mirrors stock-LTA-off while lateral is off; default ON
     {"ToyotaStockHudLatOff", {PERSISTENT | BACKUP, BOOL, "1"}},
+    // HL-FEAT(stop-assist): phase 1, model-planned stops with no car ahead (lights, crosswalks)
+    {"StopAssistLights", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"StopAssistLightsOffsetFt", {PERSISTENT | BACKUP, INT, "3"}},
 
     // HL-FIX(audio-retry): soundd is still retrying the speaker past upstream's 30 s budget; selfdrived warns
     {"AudioUnavailable", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
